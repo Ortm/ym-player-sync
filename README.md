@@ -45,3 +45,7 @@ python convert_m4a_to_flac.py "C:\Music" "C:\Music-FLAC" --delete-source
   `01 - Songname.m4a` → `Songname.flac`
 - Audio is converted **losslessly** using the FLAC codec at compression level 8
 - All metadata tags are copied from the source file
+
+## Download
+
+download from yandex music using [yandex-music-downloader](https://github.com/llistochek/yandex-music-downloader)
