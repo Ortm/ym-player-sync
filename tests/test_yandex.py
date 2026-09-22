@@ -71,7 +71,8 @@ def test_sign_matches_downloader_algorithm():
     signed = sign_file_info_params(params, timestamp=1_700_000_000)
     assert signed["ts"] == 1_700_000_000
     assert set(signed) == {*params, "ts", "sign"}
-    message = f"123nqabencraw1700000000"
+    assert list(signed)[0] == "ts"  # server requires ts first in the message
+    message = f"1700000000123nqabencraw"
     expected = base64.b64encode(
         hmac.new(SIGN_KEY.encode(), message.encode(), hashlib.sha256).digest()
     ).decode()[:-1]

@@ -56,7 +56,7 @@ optionally installs a `player-converter-sync` user service + timer.
 | `playlist_url` | Playlist URL: `…/users/<login>/playlists/<kind>`, `…/users/<login>/tracks` ("Liked"), `…/playlists/<uid>.<uuid>` (share link) or `…/playlist/<uuid>` |
 | `source` | Music source, `null` = auto-detect from URL (only `yandex` for now) |
 | `token` | OAuth token (`${YM_TOKEN}` supported; `YM_TOKEN` env var is the fallback) |
-| `quality` | Download tier, requested from the API per track — files are kept **as downloaded, no transcoding**: `lossless` → best lossless (FLAC), `high` → 320 kbps MP3, `low` → smallest variant (takes least space); exact codec/extension follows the server response |
+| `quality` | Download tier, requested from the API per track — files are kept **as downloaded, no transcoding**, except `.m4a`, which is converted to FLAC (many players can't play MP4 containers; for FLAC-in-MP4 sources this is lossless): `lossless` → best lossless (FLAC), `high` → 320 kbps MP3, `low` → smallest variant (takes least space); exact codec follows the server response |
 | `max_tracks` | Only the first N playlist tracks (`null` = all) |
 | `max_total_mb` | Cap on estimated total download size; keeps every track that fits, always at least the first (`null` = no cap) |
 | `output_dir` | Local cache dir (downloads + sync state) |

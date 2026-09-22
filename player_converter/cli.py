@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
+from .audio import output_extension
 from .config import load_config
 from .limits import apply_limits
 from .models import DesiredTrack
@@ -43,6 +44,16 @@ def cmd_info(config) -> int:
     return 0
 
 
+def _quality_tiers(quality: str) -> tuple[str, ...]:
+    """Tiers to try, best first (a denied tier falls back to a lower one)."""
+    try:
+        from .sources.yandex import QUALITY_FALLBACK
+    except ImportError:
+        QUALITY_FALLBACK = {}
+    tiers = QUALITY_FALLBACK.get(quality)
+    return tuple(tiers) if tiers else (quality,)
+
+
 def cmd_sync(config, dry_run: bool) -> int:
     source = _source_for(config)
     try:
@@ -65,12 +76,32 @@ def cmd_sync(config, dry_run: bool) -> int:
 
     # pick variants + estimate sizes, enforcing the total-size cap
     candidates: list[DesiredTrack] = []
+    denied = 0
     for track in tracks:
-        try:
-            variant = source.pick_variant(track, config.quality)
-        except SourceError as e:
-            print(f"  [skip] {track.name}: {e}")
+        variant = None
+        last_error: SourceError | None = None
+        tried: list[str] = []
+        for tier in _quality_tiers(config.quality):
+            tried.append(tier)
+            try:
+                variant = source.pick_variant(track, tier)
+                break
+            except ValueError:
+                raise
+            except SourceError as e:
+                last_error = e
+                # Only fall back on access/availability errors; other
+                # failures (network, unknown codec) stop at this tier.
+                if "not-allowed" not in str(e) and "denied" not in str(e):
+                    break
+                continue
+        if variant is None:
+            if last_error is not None and "denied" in str(last_error):
+                denied += 1
+            print(f"  [skip] {track.name}: {last_error}")
             continue
+        if len(tried) > 1:
+            print(f"  [downgrade] {track.name}: {tried[0]} -> {tried[-1]}")
         candidates.append(
             DesiredTrack(
                 track=track,
@@ -79,6 +110,15 @@ def cmd_sync(config, dry_run: bool) -> int:
             )
         )
 
+    if denied and not candidates:
+        print(
+            "  All downloads were denied (403 not-allowed). This means the "
+            "token's Yandex account has no file-download rights — usually no "
+            "active Yandex Plus/Premium. Web playback still works, but the "
+            "API won't hand out file URLs on any tier. Fix: activate Plus on "
+            f"this account ({source.account_login()}) or use a token from an "
+            "account that has it, then re-run sync."
+        )
     kept = apply_limits(
         candidates,
         [c.estimated_bytes for c in candidates],
@@ -91,7 +131,8 @@ def cmd_sync(config, dry_run: bool) -> int:
     width = max(3, len(str(len(kept))))
     for i, d in enumerate(kept, 1):
         d.filename = render_filename(
-            config.filename_template, i, width, d.track, d.variant.extension
+            config.filename_template, i, width, d.track,
+            output_extension(d.variant.extension),
         )
 
     def download(d: DesiredTrack, dest: Path) -> int:

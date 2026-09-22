@@ -40,6 +40,14 @@ SIGN_KEY = "p93jhgh689SBReK6ghtw62"
 
 # quality tier -> get-file-info quality value
 QUALITY_VALUES = {"lossless": "lossless", "high": "nq", "low": "lq"}
+
+# requested tier -> tiers to try, best first (lossless needs Plus/Premium;
+# a denied tier falls back to the next lower one per track)
+QUALITY_FALLBACK = {
+    "lossless": ("lossless", "high", "low"),
+    "high": ("high", "low"),
+    "low": ("low",),
+}
 FILE_CODECS = "flac,flac-mp4,mp3,aac,he-aac,aac-mp4,he-aac-mp4"
 
 # server codec -> output file extension (container decides)
@@ -87,13 +95,18 @@ def parse_playlist_url(url: str) -> tuple[str, str]:
 
 
 def sign_file_info_params(params: dict[str, Any], timestamp: int | None = None) -> dict[str, Any]:
-    """HMAC-sign get-file-info params (signed copy returned)."""
-    params = dict(params)
-    params["ts"] = timestamp if timestamp is not None else int(time.time())
-    message = "".join(str(v) for v in params.values()).replace(",", "")
+    """HMAC-sign get-file-info params (signed copy returned).
+
+    The server requires ``ts`` FIRST in the signed message:
+    ``ts + trackId + quality + codecs + transports`` (commas stripped).
+    Wrong field order → 403 ``not-allowed``, same as having no rights.
+    """
+    ts = timestamp if timestamp is not None else int(time.time())
+    ordered = {"ts": ts, **{k: v for k, v in params.items() if k != "ts"}}
+    message = "".join(str(v) for v in ordered.values()).replace(",", "")
     digest = hmac.new(SIGN_KEY.encode(), message.encode(), hashlib.sha256).digest()
-    params["sign"] = base64.b64encode(digest).decode()[:-1]
-    return params
+    ordered["sign"] = base64.b64encode(digest).decode()[:-1]
+    return ordered
 
 
 def decrypt_data(data: bytes, key: str) -> bytes:
@@ -293,7 +306,19 @@ class YandexSource:
                 "transports": "encraw",
             }
         )
-        result = self._request("GET", "/get-file-info", params=params)
+        try:
+            result = self._request("GET", "/get-file-info", params=params)
+        except SourceError as e:
+            if "not-allowed" in str(e) or " 403" in str(e):
+                raise SourceError(
+                    f"Yandex denied the file download for {track.name} "
+                    f"({quality}, 403 not-allowed): the token's account has "
+                    "no file-download rights — usually no active Yandex "
+                    "Plus/Premium (web playback still works, API file URLs "
+                    "don't). Original error: "
+                    f"{str(e)[:150]}"
+                ) from e
+            raise
         info = result.get("downloadInfo", result) if isinstance(result, dict) else {}
         codec = info.get("codec", "mp3")
         try:
@@ -315,6 +340,11 @@ class YandexSource:
         data = self._retrieve(random.choice(variant.urls))
         if variant.decrypt_key:
             data = decrypt_data(data, variant.decrypt_key)
+        if dest.suffix.lower() == ".flac" and variant.extension != "flac":
+            # Player-incompatible container (e.g. .m4a) -> FLAC.
+            from ..audio import transcode_to_flac
+
+            data = transcode_to_flac(data, variant.extension)
         tmp = dest.with_suffix(dest.suffix + ".part")
         with open(tmp, "wb") as f:
             f.write(data)

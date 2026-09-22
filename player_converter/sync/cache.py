@@ -67,6 +67,9 @@ def sync_cache(
             prev
             and prev.get("codec") == d.variant.codec
             and prev.get("bitrate_kbps") == d.variant.bitrate_kbps
+            # Container changes (e.g. .m4a -> .flac transcoding) are never
+            # cheap renames — the bytes must be re-downloaded/converted.
+            and Path(prev.get("filename") or "").suffix == Path(d.filename).suffix
         )
         if prev and prev.get("filename") == d.filename and dest.is_file() and same_quality:
             counts.skipped += 1
