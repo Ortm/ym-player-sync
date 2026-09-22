@@ -159,5 +159,30 @@ def test_connection_error_becomes_source_error():
         raise requests.ConnectionError("dns blew up")
 
     src.session.request = fail  # type: ignore[method-assign]
-    with pytest.raises(Exception, match="check your connection"):
+    with pytest.raises(Exception, match="no Yandex Music API host reachable"):
         src.fetch_playlist("https://music.yandex.ru/users/u/playlists/1")
+
+
+def test_fails_over_to_next_api_host():
+    import requests
+
+    src = YandexSource(token="x")
+    seen = []
+
+    class FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {"result": {"ok": True}}
+
+    def fake_request(method, url, **kwargs):
+        seen.append(url)
+        if "yandex.net" in url:
+            raise requests.ConnectionError("blocked")
+        return FakeResp()
+
+    src.session.request = fake_request  # type: ignore[method-assign]
+    assert src._request("GET", "/account/status") == {"ok": True}
+    assert seen[0].startswith("https://api.music.yandex.net/")
+    assert seen[1].startswith("https://api.music.yandex.ru/")
+    assert src.api_base == "https://api.music.yandex.ru"

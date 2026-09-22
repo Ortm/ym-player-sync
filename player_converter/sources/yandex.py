@@ -27,7 +27,11 @@ from urllib3.util.retry import Retry
 from ..models import PlaylistInfo, Track, Variant
 from . import AuthError, SourceError
 
-API_BASE = "https://api.music.yandex.net"
+API_BASES = (
+    "https://api.music.yandex.net",
+    "https://api.music.yandex.ru",
+    "https://api.music.yandex.com",
+)
 CLIENT_HEADER = "YandexMusicAndroid/24023621"
 
 # HMAC key of the official Android app (same public key yandex-music-api
@@ -110,6 +114,7 @@ class YandexSource:
                 }
             )
         self.timeout = timeout
+        self.api_base = API_BASES[0]  # updated to whichever mirror answers
 
     def set_token(self, token: str) -> None:
         self.session.headers.update(
@@ -118,29 +123,40 @@ class YandexSource:
 
     # -- low-level ----------------------------------------------------
     def _request(self, method: str, path: str, **kwargs: Any) -> Any:
-        try:
-            resp = self.session.request(
-                method, f"{API_BASE}{path}", timeout=self.timeout, **kwargs
-            )
-        except requests.ConnectionError as e:
-            raise SourceError(
-                f"cannot reach {API_BASE} ({e.__class__.__name__}) — "
-                "check your connection, DNS, or VPN and try again"
-            ) from e
-        except requests.Timeout as e:
-            raise SourceError(f"request to {API_BASE} timed out — try again") from e
-        if resp.status_code == 401:
-            raise AuthError(
-                "Yandex rejected the token (401) — check YM_TOKEN / config token"
-            )
-        if resp.status_code == 404:
-            from . import NotFoundError
+        # If one API host is unreachable from this network (DNS/SNI
+        # blocking, broken IPv6, outage), fail over to the next mirror.
+        last_error: SourceError | None = None
+        for base in API_BASES:
+            try:
+                resp = self.session.request(
+                    method, f"{base}{path}", timeout=self.timeout, **kwargs
+                )
+            except requests.ConnectionError as e:
+                last_error = SourceError(f"cannot reach {base}: {e.__class__.__name__}")
+                continue
+            except requests.Timeout as e:
+                last_error = SourceError(f"{base} timed out: {e.__class__.__name__}")
+                continue
+            if resp.status_code == 401:
+                raise AuthError(
+                    "Yandex rejected the token (401) — check YM_TOKEN / config token"
+                )
+            if resp.status_code == 404:
+                from . import NotFoundError
 
-            raise NotFoundError(f"not found: {path}")
-        if resp.status_code >= 400:
-            raise SourceError(f"Yandex API error {resp.status_code}: {resp.text[:200]}")
-        data = resp.json()
-        return data.get("result", data) if isinstance(data, dict) else data
+                raise NotFoundError(f"not found: {path}")
+            if resp.status_code >= 400:
+                raise SourceError(
+                    f"Yandex API error {resp.status_code}: {resp.text[:200]}"
+                )
+            data = resp.json()
+            self.api_base = base  # remember the working mirror
+            return data.get("result", data) if isinstance(data, dict) else data
+        raise SourceError(
+            "no Yandex Music API host reachable (tried "
+            f"{', '.join(API_BASES)}) — check your connection, DNS, or VPN "
+            f"and try again ({last_error})"
+        ) from last_error
 
     # -- PlaylistSource ------------------------------------------------
     def fetch_playlist(self, url: str) -> PlaylistInfo:
