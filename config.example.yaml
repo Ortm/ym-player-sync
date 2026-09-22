@@ -24,5 +24,6 @@ output_dir: "./music"
 player_dir: "/run/media/user/PLAYER/Music"
 
 # {position} is the 1-based playlist position, zero-padded to {width} digits.
-# {name} is "Artist - Title", {ext} follows the downloaded codec.
-filename_template: "{position:0{width}d}-{name}.{ext}"
+# {title} is the track name, {artists} the artist(s), {ext} follows the
+# downloaded codec. {name} ("Title - Artist") is also available.
+filename_template: "{position:0{width}d}-{title} - {artists}.{ext}"

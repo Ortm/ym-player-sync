@@ -105,7 +105,7 @@ in
 
     filenameTemplate = lib.mkOption {
       type = lib.types.str;
-      default = "{position:0{width}d}-{name}.{ext}";
+      default = "{position:0{width}d}-{title} - {artists}.{ext}";
       description = "Output filename template.";
     };
 

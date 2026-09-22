@@ -17,7 +17,7 @@ class Track:
     @property
     def name(self) -> str:
         artist = ", ".join(self.artists)
-        return f"{artist} - {self.title}" if artist else self.title
+        return f"{self.title} - {artist}" if artist else self.title
 
 
 @dataclass

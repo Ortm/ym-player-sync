@@ -25,7 +25,13 @@ def test_sanitize_fat32():
 def test_render_filename_numbering():
     name = render_filename("{position:0{width}d}-{name}.{ext}", 1, 3,
                            _meta(1), "flac")
-    assert name == "001-Artist - Song 1.flac"
+    assert name == "001-Song 1 - Artist.flac"
+
+
+def test_render_filename_default_template():
+    name = render_filename("{position:0{width}d}-{title} - {artists}.{ext}", 2, 3,
+                           _meta(2), "mp3")
+    assert name == "002-Song 2 - Artist.mp3"
 
 
 def test_apply_limits_tracks():

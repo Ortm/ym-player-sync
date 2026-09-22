@@ -87,8 +87,8 @@ def load_config(path: str | Path) -> Config:
     if not str(raw.get("player_dir") or ""):
         raise ValueError("config: 'player_dir' (mounted player path) is required")
 
-    template = raw.get("filename_template", "{position:0{width}d}-{name}.{ext}")
-    for field in ("position", "name", "ext"):
+    template = raw.get("filename_template", "{position:0{width}d}-{title} - {artists}.{ext}")
+    for field in ("position", "ext"):
         if f"{{{field}" not in template:
             raise ValueError(
                 f"config: 'filename_template' must contain {{{field}}}"

@@ -24,7 +24,7 @@ def render_filename(
     """Render the filename template.
 
     Fields: {position} (1-based int), {width} (zero-pad width),
-    {name} ("Artist - Title"), {title}, {artists}, {ext}.
+    {name} ("Title - Artist"), {title}, {artists}, {ext}.
     """
     return template.format(
         position=position,

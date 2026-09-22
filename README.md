@@ -1,7 +1,7 @@
 # player-converter
 
 Download a Yandex Music playlist via the API and mirror it onto a USB
-music player: `001-Artist - Title.flac`, `002-…`, …
+music player: `001-Title - Artist.flac`, `002-…`, …
 
 ## Setup (uv)
 
@@ -61,7 +61,7 @@ optionally installs a `player-converter-sync` user service + timer.
 | `max_total_mb` | Cap on estimated total download size; keeps every track that fits, always at least the first (`null` = no cap) |
 | `output_dir` | Local cache dir (downloads + sync state) |
 | `player_dir` | Mounted player path — must exist (fails loudly if the player isn't plugged in) |
-| `filename_template` | Naming, default `{position:0{width}d}-{name}.{ext}` → `001-Artist - Title.flac` |
+| `filename_template` | Naming, default `{position:0{width}d}-{title} - {artists}.{ext}` → `001-Title - Artist.flac` |
 
 ## How a sync works
 
