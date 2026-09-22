@@ -139,14 +139,24 @@ class YandexSource:
             login, playlist_kind = ref.split("/")
             data = self._request("GET", f"/users/{login}/playlists/{playlist_kind}")
         else:
-            try:
-                data = self._request("GET", f"/playlist/{ref}")
-            except NotFoundError:
-                # share links like lk.<uuid>: retry with the bare uuid
-                bare = ref.rsplit(".", 1)[-1]
-                if bare == ref:
+            # Share links look like lk.<uuid>; the API sometimes wants the
+            # full id, sometimes the bare uuid — try both.
+            candidates = [ref]
+            bare = ref.rsplit(".", 1)[-1]
+            if bare != ref:
+                candidates.append(bare)
+            data = None
+            error: SourceError | None = None
+            for candidate in candidates:
+                try:
+                    data = self._request("GET", f"/playlist/{candidate}")
+                    break
+                except AuthError:
                     raise
-                data = self._request("GET", f"/playlist/{bare}")
+                except SourceError as e:
+                    error = e
+            if data is None:
+                raise error if error else SourceError(f"playlist not found: {ref}")
         keys = []
         for entry in data.get("tracks") or []:
             track_id, album_id = entry.get("id"), entry.get("albumId")
