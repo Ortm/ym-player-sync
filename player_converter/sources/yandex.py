@@ -156,6 +156,14 @@ class YandexSource:
                 except SourceError as e:
                     error = e
             if data is None:
+                if error is not None and "451" in str(error):
+                    raise SourceError(
+                        "Yandex blocked this shared playlist in your region "
+                        "(HTTP 451). Open the playlist while logged into "
+                        "Yandex Music in your browser and use the canonical "
+                        "URL instead: "
+                        "music.yandex.ru/users/<your-login>/playlists/<number>"
+                    ) from error
                 raise error if error else SourceError(f"playlist not found: {ref}")
         keys = []
         for entry in data.get("tracks") or []:

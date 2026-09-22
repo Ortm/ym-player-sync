@@ -42,7 +42,7 @@ def test_share_link_raises_last_error_when_both_fail():
     err1 = SourceError("Yandex API error 451: first")
     err2 = SourceError("Yandex API error 451: second")
     src, calls = _source_with({"/playlist/lk.abc123": err1, "/playlist/abc123": err2})
-    with pytest.raises(SourceError, match="second"):
+    with pytest.raises(SourceError, match="blocked this shared playlist"):
         src.fetch_playlist(URL)
     assert calls == ["/playlist/lk.abc123", "/playlist/abc123"]
 
