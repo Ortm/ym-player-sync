@@ -27,21 +27,27 @@ SIGN_SALT = "XGRlBW9FXlekgbPrRHuSiA"
 
 # music.yandex.ru/users/<user>/playlists/<kind>
 _RE_USER_PLAYLIST = re.compile(r"music\.yandex\.[a-z]+/users/([^/]+)/playlists/(\d+)")
+# music.yandex.ru/playlists/<uid>.<uuid> (share links, e.g. .../playlists/lk.<uuid>)
+_RE_SHARE_PLAYLIST = re.compile(r"music\.yandex\.[a-z]+/playlists/([A-Za-z0-9_.-]+)")
 # music.yandex.ru/playlist/<uuid> (public share links)
 _RE_UUID_PLAYLIST = re.compile(r"music\.yandex\.[a-z]+/playlist/([0-9a-f-]+)")
 
 
 def parse_playlist_url(url: str) -> tuple[str, str]:
-    """Return ("user", "login/kind") or ("uuid", "<uuid>")."""
+    """Return ("user", "login/kind") or ("uuid", "<playlist uuid>")."""
     m = _RE_USER_PLAYLIST.search(url)
     if m:
         return ("user", f"{m.group(1)}/{m.group(2)}")
+    m = _RE_SHARE_PLAYLIST.search(url)
+    if m:
+        return ("uuid", m.group(1))
     m = _RE_UUID_PLAYLIST.search(url)
     if m:
         return ("uuid", m.group(1))
     raise ValueError(
         "unsupported playlist URL (expected "
-        "music.yandex.ru/users/<login>/playlists/<kind> or "
+        "music.yandex.ru/users/<login>/playlists/<kind>, "
+        "music.yandex.ru/playlists/<uid>.<uuid> or "
         "music.yandex.ru/playlist/<uuid>)"
     )
 
@@ -133,7 +139,14 @@ class YandexSource:
             login, playlist_kind = ref.split("/")
             data = self._request("GET", f"/users/{login}/playlists/{playlist_kind}")
         else:
-            data = self._request("GET", f"/playlist/{ref}")
+            try:
+                data = self._request("GET", f"/playlist/{ref}")
+            except NotFoundError:
+                # share links like lk.<uuid>: retry with the bare uuid
+                bare = ref.rsplit(".", 1)[-1]
+                if bare == ref:
+                    raise
+                data = self._request("GET", f"/playlist/{bare}")
         keys = []
         for entry in data.get("tracks") or []:
             track_id, album_id = entry.get("id"), entry.get("albumId")

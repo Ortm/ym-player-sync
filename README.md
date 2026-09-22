@@ -53,7 +53,7 @@ optionally installs a `player-converter-sync` user service + timer.
 
 | Option | What it does |
 |---|---|
-| `playlist_url` | Playlist URL (`…/users/<login>/playlists/<kind>` or `…/playlist/<uuid>`) |
+| `playlist_url` | Playlist URL: `…/users/<login>/playlists/<kind>`, `…/playlists/<uid>.<uuid>` (share link) or `…/playlist/<uuid>` |
 | `source` | Music source, `null` = auto-detect from URL (only `yandex` for now) |
 | `token` | OAuth token (`${YM_TOKEN}` supported; `YM_TOKEN` env var is the fallback) |
 | `quality` | Download tier — files are kept **as downloaded, no transcoding**: `lossless` → FLAC (needs Plus/Premium, falls back to best available per track), `high` → MP3 320 kbps, `low` → smallest variant (`.m4a`/`.mp3`, takes least space) |

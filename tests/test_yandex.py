@@ -26,6 +26,17 @@ def test_parse_uuid_playlist_url():
     assert kind == "uuid"
 
 
+def test_parse_share_playlist_url_with_query():
+    kind, ref = parse_playlist_url(
+        "https://music.yandex.ru/playlists/lk.35ed5a38-6df4-4ab9-901e-976bd0658ce1"
+        "?utm_source=web&utm_medium=copy_link"
+    )
+    assert (kind, ref) == (
+        "uuid",
+        "lk.35ed5a38-6df4-4ab9-901e-976bd0658ce1",
+    )
+
+
 def test_parse_bad_url():
     with pytest.raises(ValueError):
         parse_playlist_url("https://music.yandex.ru/album/12345")
