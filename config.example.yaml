@@ -1,0 +1,28 @@
+# Copy to config.yaml and fill in. ${ENV_VAR} in any string value is
+# expanded from the environment.
+playlist_url: "https://music.yandex.ru/users/your-login/playlists/1234"
+
+# Yandex Music OAuth token. Prefer env var: export YM_TOKEN=...
+token: "${YM_TOKEN}"
+
+# Download tier. Files are kept exactly as downloaded (no transcoding):
+#   lossless - FLAC, biggest, no quality loss (needs Yandex Plus/Premium)
+#   high     - MP3 320 kbps
+#   low      - smallest available variant (e.g. AAC/MP3 low bitrate, .m4a/.mp3)
+quality: lossless
+
+# Music source. Null (or omitted) auto-detects from the playlist URL.
+# Only "yandex" exists for now - see README for adding new sources.
+source: null
+
+# Limits (null = no limit). At least one of them answers "fit on my player".
+max_tracks: null
+max_total_mb: null
+
+# Local staging dir (cache + state live here) and the mounted player.
+output_dir: "./music"
+player_dir: "/run/media/user/PLAYER/Music"
+
+# {position} is the 1-based playlist position, zero-padded to {width} digits.
+# {name} is "Artist - Title", {ext} follows the downloaded codec.
+filename_template: "{position:0{width}d}-{name}.{ext}"

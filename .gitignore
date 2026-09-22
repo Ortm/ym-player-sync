@@ -1,0 +1,13 @@
+# ---> Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+# ---> player-converter
+# Your real config carries a secret token - never commit it.
+config.yaml
+music/
+*.part
+# ---> Nix
+result
+.direnv/

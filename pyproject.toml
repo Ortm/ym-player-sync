@@ -1,7 +1,23 @@
 [project]
-name = "player-coverter"
-version = "0.1.0"
-description = "Add your description here"
+name = "player-converter"
+version = "0.3.0"
+description = "Download a Yandex Music playlist via API and mirror it onto a USB player"
 readme = "README.md"
-requires-python = ">=3.14"
-dependencies = []
+requires-python = ">=3.11"
+dependencies = [
+  "requests>=2.31",
+  "pyyaml>=6.0",
+]
+
+[project.scripts]
+player-converter = "player_converter.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["player_converter"]
+
+[dependency-groups]
+dev = ["pytest>=8.0"]

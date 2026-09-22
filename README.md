@@ -1,51 +1,112 @@
-# m4a → FLAC Converter
+# player-converter
 
-Recursively finds all `.m4a` files in a folder and converts them to lossless `.flac`, placing every output file flat in a single output directory.
+Download a Yandex Music playlist via the API and mirror it onto a USB
+music player: `001-Artist - Title.flac`, `002-…`, …
 
-## Requirements
+## Setup (uv)
 
-- Python 3.6+
-- [ffmpeg](https://ffmpeg.org/download.html) installed and available on your `PATH`
+```bash
+uv sync
+cp config.example.yaml config.yaml   # then fill in playlist_url, token, player_dir
+export YM_TOKEN=...                   # or put the token in config.yaml
+```
+
+You need a Yandex Music OAuth token. Keep `config.yaml` private
+(`chmod 600 config.yaml`, git-ignored) — it carries your token.
 
 ## Usage
 
 ```bash
-python convert_m4a_to_flac.py <source_dir> <output_dir>
+uv run player-converter info                 # check token + playlist summary
+uv run player-converter sync --dry-run       # preview, change nothing
+uv run player-converter sync                 # download + update player
 ```
 
-**Example:**
+Or install it once (`uv tool install .`) and use `player-converter` directly.
+
+## Setup (Nix / Home Manager)
 
 ```bash
-python convert_m4a_to_flac.py "C:\Music" "C:\Music-FLAC"
+nix run . -- info
+nix profile install .     # or add the overlay to your packages
 ```
 
-## Options
+Home Manager (`flake.nix` inputs + overlay + module, see
+`nix/home-manager.nix` header for the full snippet):
 
-| Flag | Description |
+```nix
+programs.player-converter = {
+  enable = true;
+  playlistUrl = "https://music.yandex.ru/users/<login>/playlists/<kind>";
+  playerDir = "/run/media/vix/PLAYER/Music";
+  quality = "lossless";
+  tokenFile = "/run/agenix/ym-token";  # file with `YM_TOKEN=...`
+  schedule = "daily";                   # optional systemd user timer
+};
+```
+
+This writes `~/.config/player-converter/config.yaml`, keeps the token out
+of the Nix store (it comes from the environment / `tokenFile`), and
+optionally installs a `player-converter-sync` user service + timer.
+
+## Config (`config.yaml`)
+
+| Option | What it does |
 |---|---|
-| `--delete-source` | Delete each `.m4a` file after successful conversion |
-| `--dry-run` | Preview what would happen without converting anything |
+| `playlist_url` | Playlist URL (`…/users/<login>/playlists/<kind>` or `…/playlist/<uuid>`) |
+| `source` | Music source, `null` = auto-detect from URL (only `yandex` for now) |
+| `token` | OAuth token (`${YM_TOKEN}` supported; `YM_TOKEN` env var is the fallback) |
+| `quality` | Download tier — files are kept **as downloaded, no transcoding**: `lossless` → FLAC (needs Plus/Premium, falls back to best available per track), `high` → MP3 320 kbps, `low` → smallest variant (`.m4a`/`.mp3`, takes least space) |
+| `max_tracks` | Only the first N playlist tracks (`null` = all) |
+| `max_total_mb` | Cap on estimated total download size; keeps every track that fits, always at least the first (`null` = no cap) |
+| `output_dir` | Local cache dir (downloads + sync state) |
+| `player_dir` | Mounted player path — must exist (fails loudly if the player isn't plugged in) |
+| `filename_template` | Naming, default `{position:0{width}d}-{name}.{ext}` → `001-Artist - Title.flac` |
 
-**Examples:**
+## How a sync works
 
-```bash
-# Preview only
-python convert_m4a_to_flac.py "C:\Music" "C:\Music-FLAC" --dry-run
+1. Playlist order is fetched, unavailable tracks skipped, `max_tracks` applied.
+2. For each track the variant matching `quality` is picked; sizes are
+   estimated from `bitrate × duration` and `max_total_mb` is applied.
+3. The cache (`output_dir`) is mirrored: new tracks downloaded, position
+   changes become cheap **renames** (no re-download), removed tracks deleted.
+4. The player (`player_dir`) is mirrored **exactly**: new/changed files
+   copied over, files no longer in the playlist deleted. Non-audio files
+   on the player are left alone; hidden state lives in
+   `output_dir/.player-converter-state.json`.
 
-# Convert and delete originals
-python convert_m4a_to_flac.py "C:\Music" "C:\Music-FLAC" --delete-source
+## Project structure
+
+```
+player_converter/
+  cli.py            # argument parsing, `sync` / `info` commands
+  config.py         # YAML loading + validation
+  models.py         # Track, Variant, PlaylistInfo, DesiredTrack
+  naming.py         # player-safe filenames + numbering template
+  limits.py         # max_tracks / max_total_mb truncation
+  sources/
+    __init__.py     # PlaylistSource protocol, registry, detect_source()
+    yandex.py       # Yandex Music implementation
+  sync/
+    cache.py        # download/rename/prune local cache (+ state file)
+    player.py       # exact-mirror cache -> player
+tests/              # network-free pytest suite (`uv run pytest`)
+nix/
+  package.nix       # Nix package build
+  home-manager.nix  # Home Manager module (config file + systemd timer)
 ```
 
-## Behaviour
+## Adding a new source
 
-- Searches `source_dir` **recursively** for `.m4a` files
-- All `.flac` files are written **flat** into `output_dir` (no subfolders)
-- Files with the same name are **overwritten**
-- Leading track number prefixes are stripped from output filenames:
-  `01 - Songname.m4a` → `Songname.flac`
-- Audio is converted **losslessly** using the FLAC codec at compression level 8
-- All metadata tags are copied from the source file
+1. Subclass the `PlaylistSource` protocol in `sources/<name>.py`
+   (`set_token`, `account_login`, `fetch_playlist`, `fetch_tracks`,
+   `pick_variant`, `download`).
+2. Register it in `AVAILABLE_SOURCES` / `get_source()` and extend
+   `detect_source()` if the source is guessable from the URL.
+3. Add tests. Nothing else changes — CLI, limits, naming, and both sync
+   stages work against the protocol, not Yandex.
 
-## Download
+## Notes
 
-download from yandex music using [yandex-music-downloader](https://github.com/llistochek/yandex-music-downloader)
+- Tests: `uv run pytest` (35 tests, network-free).
+- License: MIT.
