@@ -148,3 +148,16 @@ def test_pick_variant_unknown_quality_errors():
 def test_variant_estimated_bytes():
     v = Variant(codec="mp3", bitrate_kbps=320, extension="mp3", urls=["http://x"])
     assert v.estimated_bytes(180_000) == 320 * 180_000 // 8000  # 7.2 MB
+
+
+def test_connection_error_becomes_source_error():
+    import requests
+
+    src = YandexSource(token="x")
+
+    def fail(*args, **kwargs):
+        raise requests.ConnectionError("dns blew up")
+
+    src.session.request = fail  # type: ignore[method-assign]
+    with pytest.raises(Exception, match="check your connection"):
+        src.fetch_playlist("https://music.yandex.ru/users/u/playlists/1")

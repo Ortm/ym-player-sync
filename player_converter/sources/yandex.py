@@ -21,6 +21,8 @@ from typing import Any
 
 import requests
 from Crypto.Cipher import AES
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from ..models import PlaylistInfo, Track, Variant
 from . import AuthError, SourceError
@@ -95,6 +97,11 @@ class YandexSource:
 
     def __init__(self, token: str = "", timeout: int = 15) -> None:
         self.session = requests.Session()
+        # Transient network blips (DNS, resets, 5xx) are retried with
+        # backoff instead of failing the whole sync.
+        retry = Retry(total=3, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
+        self.session.mount("https://", HTTPAdapter(max_retries=retry))
+        self.session.mount("http://", HTTPAdapter(max_retries=retry))
         if token:
             self.session.headers.update(
                 {
@@ -111,9 +118,17 @@ class YandexSource:
 
     # -- low-level ----------------------------------------------------
     def _request(self, method: str, path: str, **kwargs: Any) -> Any:
-        resp = self.session.request(
-            method, f"{API_BASE}{path}", timeout=self.timeout, **kwargs
-        )
+        try:
+            resp = self.session.request(
+                method, f"{API_BASE}{path}", timeout=self.timeout, **kwargs
+            )
+        except requests.ConnectionError as e:
+            raise SourceError(
+                f"cannot reach {API_BASE} ({e.__class__.__name__}) — "
+                "check your connection, DNS, or VPN and try again"
+            ) from e
+        except requests.Timeout as e:
+            raise SourceError(f"request to {API_BASE} timed out — try again") from e
         if resp.status_code == 401:
             raise AuthError(
                 "Yandex rejected the token (401) — check YM_TOKEN / config token"
