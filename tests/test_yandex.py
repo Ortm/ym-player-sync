@@ -1,14 +1,20 @@
+import base64
 import hashlib
+import hmac
 
 import pytest
+from Crypto.Cipher import AES
 
-from player_converter.models import Variant
+from player_converter.models import Track, Variant
 from player_converter.sources import detect_source, get_source
 from player_converter.sources.yandex import (
-    SIGN_SALT,
-    build_direct_link,
-    choose_variant,
+    CONTAINER_EXTENSIONS,
+    QUALITY_VALUES,
+    SIGN_KEY,
+    YandexSource,
+    decrypt_data,
     parse_playlist_url,
+    sign_file_info_params,
 )
 
 
@@ -56,56 +62,89 @@ def test_get_source_unknown():
         get_source("spotify")
 
 
-def _v(codec, bitrate, preview=False):
-    return Variant(codec=codec, bitrate_kbps=bitrate, ref="http://x", preview=preview)
+def test_quality_tiers_map_to_file_info_values():
+    assert QUALITY_VALUES == {"lossless": "lossless", "high": "nq", "low": "lq"}
 
 
-def test_choose_lossless_prefers_flac():
-    v = choose_variant([_v("mp3", 320), _v("flac", 912)], "lossless")
-    assert v.codec == "flac"
+def test_sign_matches_downloader_algorithm():
+    params = {"trackId": "123", "quality": "nq", "codecs": "a,b", "transports": "encraw"}
+    signed = sign_file_info_params(params, timestamp=1_700_000_000)
+    assert signed["ts"] == 1_700_000_000
+    assert set(signed) == {*params, "ts", "sign"}
+    message = f"123nqabencraw1700000000"
+    expected = base64.b64encode(
+        hmac.new(SIGN_KEY.encode(), message.encode(), hashlib.sha256).digest()
+    ).decode()[:-1]
+    assert signed["sign"] == expected
 
 
-def test_choose_lossless_falls_back_to_best():
-    v = choose_variant([_v("mp3", 128), _v("mp3", 320)], "lossless")
-    assert (v.codec, v.bitrate_kbps) == ("mp3", 320)
+def test_decrypt_round_trip():
+    key = "00112233445566778899aabbccddeeff"
+    aes = AES.new(key=bytes.fromhex(key), nonce=bytes(12), mode=AES.MODE_CTR)
+    ciphertext = aes.encrypt(b"audio-bytes")
+    assert decrypt_data(ciphertext, key) == b"audio-bytes"
 
 
-def test_choose_high_prefers_320_no_flac():
-    v = choose_variant([_v("flac", 912), _v("mp3", 320), _v("mp3", 128)], "high")
-    assert (v.codec, v.bitrate_kbps) == ("mp3", 320)
+def test_container_extensions_cover_server_codecs():
+    for codec in ("flac", "flac-mp4", "mp3", "aac", "he-aac", "aac-mp4", "he-aac-mp4"):
+        assert CONTAINER_EXTENSIONS[codec] in ("flac", "mp3", "m4a")
 
 
-def test_choose_low_picks_smallest():
-    v = choose_variant([_v("mp3", 320), _v("aac", 64), _v("mp3", 128)], "low")
-    assert (v.codec, v.bitrate_kbps) == ("aac", 64)
+def _source_with(responses):
+    src = YandexSource(token="x")
+    calls = []
+
+    def fake_request(method, path, **kwargs):
+        calls.append((method, path, kwargs.get("params")))
+        resp = responses[(method, path)]
+        if isinstance(resp, Exception):
+            raise resp
+        return resp
+
+    src._request = fake_request  # type: ignore[method-assign]
+    return src, calls
 
 
-def test_choose_skips_previews_and_empty():
-    with pytest.raises(Exception):
-        choose_variant([_v("mp3", 128, preview=True)], "high")
+def _track():
+    return Track(key="123:456", title="Song", artists=["Artist"], duration_ms=180_000)
 
 
-def test_build_direct_link_signs_like_reference_client():
-    xml = (
-        b"<download-info><host>storage.example.net</host>"
-        b"<path>/get-mp3/abc/def123</path><ts>abc123</ts><s>xyz999</s>"
-        b"</download-info>"
-    )
-    link = build_direct_link(xml)
-    expected_sign = hashlib.md5(
-        (SIGN_SALT + "get-mp3/abc/def123" + "xyz999").encode()
-    ).hexdigest()
-    assert link == (
-        f"https://storage.example.net/get-mp3/{expected_sign}/abc123/get-mp3/abc/def123"
-    )
+def test_pick_variant_builds_from_file_info():
+    payload = {
+        "downloadInfo": {
+            "quality": "nq",
+            "codec": "mp3",
+            "urls": ["http://a", "http://b"],
+            "bitrate": 320,
+        }
+    }
+    src, calls = _source_with({("GET", "/get-file-info"): payload})
+    variant = src.pick_variant(_track(), "high")
+    assert variant.codec == "mp3"
+    assert variant.bitrate_kbps == 320
+    assert variant.extension == "mp3"
+    assert variant.urls == ["http://a", "http://b"]
+    assert variant.decrypt_key is None
+    method, path, params = calls[0]
+    assert (method, path) == ("GET", "/get-file-info")
+    assert params["trackId"] == "123"  # bare track id, not "123:456"
+    assert params["quality"] == "nq"
+    assert "sign" in params
+
+
+def test_pick_variant_unknown_codec_errors():
+    payload = {"downloadInfo": {"codec": "opus", "urls": ["http://a"], "bitrate": 160}}
+    src, _ = _source_with({("GET", "/get-file-info"): payload})
+    with pytest.raises(Exception, match="unknown codec"):
+        src.pick_variant(_track(), "high")
+
+
+def test_pick_variant_unknown_quality_errors():
+    src, _ = _source_with({})
+    with pytest.raises(ValueError, match="unknown quality"):
+        src.pick_variant(_track(), "ultra")
 
 
 def test_variant_estimated_bytes():
-    v = _v("mp3", 320)
+    v = Variant(codec="mp3", bitrate_kbps=320, extension="mp3", urls=["http://x"])
     assert v.estimated_bytes(180_000) == 320 * 180_000 // 8000  # 7.2 MB
-
-
-def test_variant_extensions():
-    assert _v("flac", 900).extension == "flac"
-    assert _v("mp3", 320).extension == "mp3"
-    assert _v("aac", 64).extension == "m4a"

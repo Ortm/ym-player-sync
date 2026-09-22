@@ -11,7 +11,8 @@ def _meta(i, title="Song", artists=("Artist",)):
 
 def _desired(i, filename=None, codec="mp3", bitrate=320):
     m = _meta(i)
-    v = Variant(codec=codec, bitrate_kbps=bitrate, ref="http://x")
+    v = Variant(codec=codec, bitrate_kbps=bitrate, extension="mp3",
+                urls=["http://x"])
     return DesiredTrack(track=m, variant=v,
                         filename=filename or f"{i:03d}-Artist - Song {i}.mp3",
                         estimated_bytes=v.estimated_bytes(m.duration_ms))

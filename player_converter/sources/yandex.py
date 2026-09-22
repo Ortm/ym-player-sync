@@ -1,29 +1,51 @@
-"""Yandex Music playlist source (sync, stdlib + requests only).
+"""Yandex Music playlist source (requests + pycryptodome only).
 
-Mirrors the public MarshalX/yandex-music-api behaviour:
-  * OAuth header auth + ``X-Yandex-Music-Client`` header
-  * playlist fetch, batched full-track fetch (POST /tracks, form-encoded)
-  * per-track download-info -> XML storage info -> signed direct link
-    (sign = md5(SIGN_SALT + path[1:] + s))
+Metadata (playlist, tracks) goes through api.music.yandex.net like the
+public MarshalX/yandex-music-api client. File downloads use the newer
+official-client flow from llistochek/yandex-music-downloader:
+signed ``GET /get-file-info`` -> encrypted ``encraw`` transport URLs ->
+AES-CTR decryption.
 """
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import os
+import random
 import re
-import xml.dom.minidom as minidom
-from hashlib import md5
+import time
 from pathlib import Path
 from typing import Any
 
 import requests
+from Crypto.Cipher import AES
 
 from ..models import PlaylistInfo, Track, Variant
-from . import AuthError, NotFoundError, SourceError
+from . import AuthError, SourceError
 
 API_BASE = "https://api.music.yandex.net"
 CLIENT_HEADER = "YandexMusicAndroid/24023621"
-SIGN_SALT = "XGRlBW9FXlekgbPrRHuSiA"
+
+# HMAC key of the official Android app (same public key yandex-music-api
+# and yandex-music-downloader use for file-info request signing).
+SIGN_KEY = "p93jhgh689SBReK6ghtw62"
+
+# quality tier -> get-file-info quality value
+QUALITY_VALUES = {"lossless": "lossless", "high": "nq", "low": "lq"}
+FILE_CODECS = "flac,flac-mp4,mp3,aac,he-aac,aac-mp4,he-aac-mp4"
+
+# server codec -> output file extension (container decides)
+CONTAINER_EXTENSIONS = {
+    "flac": "flac",
+    "flac-mp4": "m4a",
+    "mp3": "mp3",
+    "aac": "m4a",
+    "he-aac": "m4a",
+    "aac-mp4": "m4a",
+    "he-aac-mp4": "m4a",
+}
 
 # music.yandex.ru/users/<user>/playlists/<kind>
 _RE_USER_PLAYLIST = re.compile(r"music\.yandex\.[a-z]+/users/([^/]+)/playlists/(\d+)")
@@ -52,49 +74,20 @@ def parse_playlist_url(url: str) -> tuple[str, str]:
     )
 
 
-def choose_variant(variants: list[Variant], quality: str) -> Variant:
-    """Pick the download variant for a quality tier.
-
-    lossless: FLAC, falling back to the highest-bitrate variant when the
-        track has no lossless version (without Plus/Premium the API
-        simply does not list FLAC).
-    high: MP3 320 kbps, else the best variant at/below 320.
-    low: the smallest variant available.
-    """
-    usable = [v for v in variants if not v.preview and v.ref]
-    if not usable:
-        raise SourceError("no downloadable variants for this track")
-    if quality == "lossless":
-        flac = [v for v in usable if v.codec == "flac"]
-        if flac:
-            return max(flac, key=lambda v: v.bitrate_kbps)
-        return max(usable, key=lambda v: v.bitrate_kbps)
-    if quality == "high":
-        pool = [v for v in usable if v.codec != "flac"] or usable
-        exact = [v for v in pool if v.bitrate_kbps == 320]
-        if exact:
-            return exact[0]
-        below = [v for v in pool if v.bitrate_kbps <= 320] or pool
-        return max(below, key=lambda v: v.bitrate_kbps)
-    if quality == "low":
-        return min(usable, key=lambda v: v.bitrate_kbps)
-    raise ValueError(f"unknown quality: {quality!r}")
+def sign_file_info_params(params: dict[str, Any], timestamp: int | None = None) -> dict[str, Any]:
+    """HMAC-sign get-file-info params (signed copy returned)."""
+    params = dict(params)
+    params["ts"] = timestamp if timestamp is not None else int(time.time())
+    message = "".join(str(v) for v in params.values()).replace(",", "")
+    digest = hmac.new(SIGN_KEY.encode(), message.encode(), hashlib.sha256).digest()
+    params["sign"] = base64.b64encode(digest).decode()[:-1]
+    return params
 
 
-def build_direct_link(xml: bytes) -> str:
-    """Turn a download-info XML document into a signed direct link."""
-    doc = minidom.parseString(xml)
-
-    def text(tag: str) -> str:
-        for el in doc.getElementsByTagName(tag):
-            for node in el.childNodes:
-                if node.nodeType == node.TEXT_NODE:
-                    return node.data
-        raise SourceError(f"download-info XML has no <{tag}>")
-
-    host, path, ts, s = text("host"), text("path"), text("ts"), text("s")
-    sign = md5((SIGN_SALT + path[1:] + s).encode("utf-8")).hexdigest()
-    return f"https://{host}/get-mp3/{sign}/{ts}{path}"
+def decrypt_data(data: bytes, key: str) -> bytes:
+    """AES-CTR decrypt an encraw transport payload."""
+    aes = AES.new(key=bytes.fromhex(key), nonce=bytes(12), mode=AES.MODE_CTR)
+    return aes.decrypt(data)
 
 
 class YandexSource:
@@ -126,6 +119,8 @@ class YandexSource:
                 "Yandex rejected the token (401) — check YM_TOKEN / config token"
             )
         if resp.status_code == 404:
+            from . import NotFoundError
+
             raise NotFoundError(f"not found: {path}")
         if resp.status_code >= 400:
             raise SourceError(f"Yandex API error {resp.status_code}: {resp.text[:200]}")
@@ -208,38 +203,55 @@ class YandexSource:
         return tracks
 
     def pick_variant(self, track: Track, quality: str) -> Variant:
+        """Ask get-file-info for the track at the requested tier. The
+        server replies with the actual codec/bitrate/URLs, so estimates
+        built from the result are exact, not guessed."""
         try:
-            result = self._request("GET", f"/tracks/{track.key}/download-info")
-        except NotFoundError:
-            bare = track.key.split(":")[0]
-            result = self._request("GET", f"/tracks/{bare}/download-info")
-        items = result if isinstance(result, list) else [result]
-        variants = [
-            Variant(
-                codec=item.get("codec", "mp3"),
-                bitrate_kbps=item.get("bitrateInKbps") or 0,
-                ref=item.get("downloadInfoUrl", ""),
-                preview=bool(item.get("preview")),
-            )
-            for item in items
-        ]
-        return choose_variant(variants, quality)
+            quality_value = QUALITY_VALUES[quality]
+        except KeyError:
+            raise ValueError(f"unknown quality: {quality!r}")
+        track_id = track.key.split(":")[0]
+        params = sign_file_info_params(
+            {
+                "trackId": track_id,
+                "quality": quality_value,
+                "codecs": FILE_CODECS,
+                "transports": "encraw",
+            }
+        )
+        result = self._request("GET", "/get-file-info", params=params)
+        info = result.get("downloadInfo", result) if isinstance(result, dict) else {}
+        codec = info.get("codec", "mp3")
+        try:
+            extension = CONTAINER_EXTENSIONS[codec]
+        except KeyError:
+            raise SourceError(f"unknown codec in file info: {codec!r}")
+        urls = info.get("urls") or []
+        if not urls:
+            raise SourceError("get-file-info returned no download URLs")
+        return Variant(
+            codec=codec,
+            bitrate_kbps=info.get("bitrate") or 0,
+            extension=extension,
+            urls=list(urls),
+            decrypt_key=info.get("key"),
+        )
 
     def download(self, track: Track, variant: Variant, dest: Path) -> int:
-        resp = self.session.get(variant.ref, timeout=self.timeout)
-        resp.raise_for_status()
-        url = build_direct_link(resp.content)
+        data = self._retrieve(random.choice(variant.urls))
+        if variant.decrypt_key:
+            data = decrypt_data(data, variant.decrypt_key)
         tmp = dest.with_suffix(dest.suffix + ".part")
-        total = 0
-        with self.session.get(url, stream=True, timeout=self.timeout) as stream:
-            stream.raise_for_status()
-            with open(tmp, "wb") as f:
-                for chunk in stream.iter_content(1 << 20):
-                    if chunk:
-                        f.write(chunk)
-                        total += len(chunk)
+        with open(tmp, "wb") as f:
+            f.write(data)
         os.replace(tmp, dest)
-        return total
+        return len(data)
+
+    def _retrieve(self, url: str) -> bytes:
+        with self.session.get(url, stream=True, timeout=self.timeout) as resp:
+            resp.raise_for_status()
+            chunks = [c for c in resp.iter_content(1 << 20) if c]
+        return b"".join(chunks)
 
     # -- extra ----------------------------------------------------------
     def account_login(self) -> str:

@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-CODEC_EXTENSIONS = {"flac": "flac", "mp3": "mp3", "aac": "m4a"}
-
 
 @dataclass
 class Track:
@@ -22,19 +20,15 @@ class Track:
 
 @dataclass
 class Variant:
-    """One downloadable encoding of a track offered by the source."""
+    """One downloadable encoding of a track, as offered by the source."""
 
     codec: str
     bitrate_kbps: int
     extension: str = ""
-    # source-private payload (e.g. Yandex download-info URL); the source
-    # interprets it when downloading.
-    ref: str = ""
-    preview: bool = False
-
-    def __post_init__(self) -> None:
-        if not self.extension:
-            self.extension = CODEC_EXTENSIONS.get(self.codec, self.codec)
+    # download locations + optional transport decryption key; interpreted
+    # by the source's download().
+    urls: list[str] = field(default_factory=list)
+    decrypt_key: str | None = None
 
     def estimated_bytes(self, duration_ms: int) -> int:
         # bitrate(kbit/s) * duration(ms) / 8000 = bytes

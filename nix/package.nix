@@ -15,6 +15,7 @@ python3.pkgs.buildPythonApplication {
   dependencies = with python3.pkgs; [
     requests
     pyyaml
+    pycryptodome
   ];
 
   # No test suite runs in the sandbox (tests are network-free but run via uv/pytest upstream).
