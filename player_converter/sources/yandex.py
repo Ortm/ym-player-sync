@@ -55,6 +55,8 @@ CONTAINER_EXTENSIONS = {
 
 # music.yandex.ru/users/<user>/playlists/<kind>
 _RE_USER_PLAYLIST = re.compile(r"music\.yandex\.[a-z]+/users/([^/]+)/playlists/(\d+)")
+# music.yandex.ru/users/<user>/tracks ("Liked" collection page)
+_RE_LIKES_URL = re.compile(r"music\.yandex\.[a-z]+/users/([^/?#]+)/tracks")
 # music.yandex.ru/playlists/<uid>.<uuid> (share links, e.g. .../playlists/lk.<uuid>)
 _RE_SHARE_PLAYLIST = re.compile(r"music\.yandex\.[a-z]+/playlists/([A-Za-z0-9_.-]+)")
 # music.yandex.ru/playlist/<uuid> (public share links)
@@ -62,10 +64,13 @@ _RE_UUID_PLAYLIST = re.compile(r"music\.yandex\.[a-z]+/playlist/([0-9a-f-]+)")
 
 
 def parse_playlist_url(url: str) -> tuple[str, str]:
-    """Return ("user", "login/kind") or ("uuid", "<playlist uuid>")."""
+    """Return ("user", "login/kind"), ("likes", "login") or ("uuid", "<id>")."""
     m = _RE_USER_PLAYLIST.search(url)
     if m:
         return ("user", f"{m.group(1)}/{m.group(2)}")
+    m = _RE_LIKES_URL.search(url)
+    if m:
+        return ("likes", m.group(1))
     m = _RE_SHARE_PLAYLIST.search(url)
     if m:
         return ("uuid", m.group(1))
@@ -75,6 +80,7 @@ def parse_playlist_url(url: str) -> tuple[str, str]:
     raise ValueError(
         "unsupported playlist URL (expected "
         "music.yandex.ru/users/<login>/playlists/<kind>, "
+        "music.yandex.ru/users/<login>/tracks, "
         "music.yandex.ru/playlists/<uid>.<uuid> or "
         "music.yandex.ru/playlist/<uuid>)"
     )
@@ -164,43 +170,80 @@ class YandexSource:
         if kind == "user":
             login, playlist_kind = ref.split("/")
             data = self._request("GET", f"/users/{login}/playlists/{playlist_kind}")
-        else:
-            # Share links look like lk.<uuid>; the API sometimes wants the
-            # full id, sometimes the bare uuid — try both.
-            candidates = [ref]
-            bare = ref.rsplit(".", 1)[-1]
-            if bare != ref:
-                candidates.append(bare)
-            data = None
-            error: SourceError | None = None
-            for candidate in candidates:
-                try:
-                    data = self._request("GET", f"/playlist/{candidate}")
-                    break
-                except AuthError:
-                    raise
-                except SourceError as e:
-                    error = e
-            if data is None:
-                if error is not None and "451" in str(error):
-                    raise SourceError(
-                        "Yandex blocked this shared playlist in your region "
-                        "(HTTP 451). Open the playlist while logged into "
-                        "Yandex Music in your browser and use the canonical "
-                        "URL instead: "
-                        "music.yandex.ru/users/<your-login>/playlists/<number>"
-                    ) from error
-                raise error if error else SourceError(f"playlist not found: {ref}")
+            return self._playlist_info(data)
+        if kind == "likes":
+            # "Liked" collection: tracks live under library.tracks.
+            data = self._request("GET", f"/users/{ref}/likes/tracks")
+            library = data.get("library", data) if isinstance(data, dict) else {}
+            return PlaylistInfo(
+                title="Мне нравится",
+                owner=ref,
+                track_keys=self._track_keys(library.get("tracks") or []),
+            )
+        return self._fetch_shared(ref)
+
+    @staticmethod
+    def _track_keys(entries: list) -> list[str]:
         keys = []
-        for entry in data.get("tracks") or []:
+        for entry in entries:
             track_id, album_id = entry.get("id"), entry.get("albumId")
             if track_id is not None and album_id is not None:
                 keys.append(f"{track_id}:{album_id}")
+        return keys
+
+    @classmethod
+    def _playlist_info(cls, data: dict) -> PlaylistInfo:
         return PlaylistInfo(
             title=data.get("title", "?"),
             owner=(data.get("owner") or {}).get("login", "?"),
-            track_keys=keys,
+            track_keys=cls._track_keys(data.get("tracks") or []),
         )
+
+    def _fetch_shared(self, ref: str) -> PlaylistInfo:
+        # Share links look like lk.<uuid>; the API sometimes wants the
+        # full id, sometimes the bare uuid — try both.
+        candidates = [ref]
+        bare = ref.rsplit(".", 1)[-1]
+        if bare != ref:
+            candidates.append(bare)
+        data = None
+        error: SourceError | None = None
+        for candidate in candidates:
+            try:
+                data = self._request("GET", f"/playlist/{candidate}")
+                break
+            except AuthError:
+                raise
+            except SourceError as e:
+                error = e
+        if data is None:
+            if error is not None and "451" in str(error):
+                raise SourceError(
+                    "Yandex blocked this shared playlist in your region "
+                    "(HTTP 451). Open the playlist while logged into "
+                    "Yandex Music in your browser and use the canonical "
+                    "URL instead: "
+                    "music.yandex.ru/users/<your-login>/playlists/<number>"
+                ) from error
+            raise error if error else SourceError(f"playlist not found: {ref}")
+        info = self._playlist_info(data)
+        if info.track_keys:
+            return info
+        # Share responses sometimes come back without tracks (e.g. the
+        # "Liked" playlist) — refetch in the owner's context, which carries
+        # the full track list.
+        owner = data.get("owner") or {}
+        user = owner.get("login") or owner.get("uid") or owner.get("id")
+        playlist_kind = data.get("kind")
+        if user and playlist_kind:
+            try:
+                full = self._request("GET", f"/users/{user}/playlists/{playlist_kind}")
+                refetched = self._playlist_info(full)
+                if refetched.track_keys:
+                    return refetched
+            except SourceError:
+                pass
+        return info
 
     def fetch_tracks(self, keys: list[str]) -> list[Track]:
         tracks: list[Track] = []

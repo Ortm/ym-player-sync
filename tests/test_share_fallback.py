@@ -52,3 +52,49 @@ def test_no_retry_on_auth_error():
     with pytest.raises(AuthError):
         src.fetch_playlist(URL)
     assert calls == ["/playlist/lk.abc123"]
+
+
+def test_parse_likes_url():
+    from player_converter.sources.yandex import parse_playlist_url
+
+    assert parse_playlist_url("https://music.yandex.ru/users/Ortimm/tracks") == (
+        "likes",
+        "Ortimm",
+    )
+
+
+def test_likes_playlist_reads_library_tracks():
+    src = YandexSource(token="x")
+    seen = []
+
+    def fake_request(method, path, **kwargs):
+        seen.append(path)
+        return {"library": {"tracks": [{"id": 7, "albumId": 8}], "revision": 1}}
+
+    src._request = fake_request  # type: ignore[method-assign]
+    playlist = src.fetch_playlist("https://music.yandex.ru/users/Ortimm/tracks")
+    assert playlist.track_keys == ["7:8"]
+    assert playlist.owner == "Ortimm"
+    assert seen == ["/users/Ortimm/likes/tracks"]
+
+
+def test_shared_playlist_refetches_owner_context_when_trackless():
+    src = YandexSource(token="x")
+    seen = []
+
+    def fake_request(method, path, **kwargs):
+        seen.append(path)
+        if path == "/playlist/lk.abc123":
+            return {"title": "Liked", "owner": {"login": "u"}, "kind": 3, "tracks": []}
+        if path == "/users/u/playlists/3":
+            return {
+                "title": "Liked",
+                "owner": {"login": "u"},
+                "tracks": [{"id": 1, "albumId": 2}],
+            }
+        raise AssertionError(f"unexpected {path}")
+
+    src._request = fake_request  # type: ignore[method-assign]
+    playlist = src.fetch_playlist(URL)
+    assert playlist.track_keys == ["1:2"]
+    assert seen == ["/playlist/lk.abc123", "/users/u/playlists/3"]
