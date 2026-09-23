@@ -61,6 +61,22 @@ def test_limits_parsed(tmp_path):
     assert cfg.max_tracks == 50 and cfg.max_total_mb == 500.0
 
 
+def test_workers_default(tmp_path):
+    assert load_config(_write(tmp_path, BASE)).workers == 4
+
+
+def test_workers_explicit(tmp_path):
+    cfg = load_config(_write(tmp_path, BASE + "workers: 8\n"))
+    assert cfg.workers == 8
+
+
+def test_workers_bad_errors(tmp_path):
+    with pytest.raises(ValueError, match="workers"):
+        load_config(_write(tmp_path, BASE + "workers: 0\n"))
+    with pytest.raises(ValueError, match="workers"):
+        load_config(_write(tmp_path, BASE + "workers: lots\n"))
+
+
 def test_missing_file_errors(tmp_path):
     with pytest.raises(FileNotFoundError):
         load_config(tmp_path / "nope.yaml")

@@ -19,6 +19,11 @@ source: null
 max_tracks: null
 max_total_mb: null
 
+# Parallel downloads on the `download` stage (threads; 1 = sequential).
+# 4 is a sane default: each download is network-bound, transcoding runs
+# in a subprocess, and Yandex tolerates a few parallel streams.
+workers: 4
+
 # Local staging dir (cache + state live here) and the mounted player.
 output_dir: "./music"
 player_dir: "/run/media/user/PLAYER/Music"

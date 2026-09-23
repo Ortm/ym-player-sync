@@ -187,3 +187,56 @@ def test_fails_over_to_next_api_host():
     assert seen[0].startswith("https://api.music.yandex.net/")
     assert seen[1].startswith("https://api.music.yandex.ru/")
     assert src.api_base == "https://api.music.yandex.ru"
+
+
+class _FakeStreamResp:
+    def __init__(self, payload: bytes):
+        self.payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def raise_for_status(self):
+        pass
+
+    def iter_content(self, chunk_size):
+        yield self.payload
+
+
+def test_retrieve_falls_over_to_next_url(tmp_path, monkeypatch):
+    import random
+    import time
+
+    import requests
+
+    from player_converter.sources import SourceError
+
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+    monkeypatch.setattr(random, "shuffle", lambda x: None)
+    src = YandexSource(token="x")
+    calls = []
+
+    def fake_get(url, **kwargs):
+        calls.append(url)
+        if "host-a" in url:
+            raise requests.ConnectionError("stalled")
+        return _FakeStreamResp(b"bytes")
+
+    src.session.get = fake_get  # type: ignore[method-assign]
+    track = _track()
+    data = src._retrieve_with_fallback(
+        track, ["https://host-a/file", "https://host-b/file"]
+    )
+    assert data == b"bytes"
+    assert calls[0] == "https://host-a/file"
+    assert calls[-1] == "https://host-b/file"
+
+    def always_down(url, **kwargs):
+        raise requests.ConnectionError("down")
+
+    src.session.get = always_down  # type: ignore[method-assign]
+    with pytest.raises(SourceError, match="download failed"):
+        src._retrieve_with_fallback(track, ["https://host-a/file"])

@@ -54,7 +54,8 @@ def _quality_tiers(quality: str) -> tuple[str, ...]:
     return tuple(tiers) if tiers else (quality,)
 
 
-def cmd_sync(config, dry_run: bool) -> int:
+def cmd_download(config, dry_run: bool) -> int:
+    """Stage 1 (online): fetch the playlist and fill the local cache."""
     source = _source_for(config)
     try:
         playlist = source.fetch_playlist(config.playlist_url)
@@ -117,7 +118,7 @@ def cmd_sync(config, dry_run: bool) -> int:
             "active Yandex Plus/Premium. Web playback still works, but the "
             "API won't hand out file URLs on any tier. Fix: activate Plus on "
             f"this account ({source.account_login()}) or use a token from an "
-            "account that has it, then re-run sync."
+            "account that has it, then re-run download."
         )
     kept = apply_limits(
         candidates,
@@ -139,19 +140,34 @@ def cmd_sync(config, dry_run: bool) -> int:
         return source.download(d.track, d.variant, dest)
 
     print(f"\n-- cache: {config.output_dir}")
-    counts = sync_cache(config.output_dir, kept, download, dry_run=dry_run)
-
-    print(f"\n-- player: {config.player_dir}")
-    player_counts = sync_player(config.output_dir, config.player_dir, dry_run=dry_run)
-    counts.copied = player_counts.copied
-    counts.removed_player = player_counts.removed_player
+    counts = sync_cache(
+        config.output_dir, kept, download,
+        dry_run=dry_run, workers=config.workers,
+    )
 
     mode = "(dry run) " if dry_run else ""
     print(
         f"\nDone {mode}— {counts.downloaded} downloaded, {counts.renamed} renumbered, "
-        f"{counts.skipped} up to date, {counts.removed_cache} removed from cache, "
-        f"{counts.copied} copied to player, "
-        f"{counts.removed_player} removed from player."
+        f"{counts.skipped} up to date, {counts.failed} failed, "
+        f"{counts.removed_cache} removed from cache."
+    )
+    return 0
+
+
+def cmd_sync(config, dry_run: bool) -> int:
+    """Stage 2 (offline): mirror the cache onto the player."""
+    print(f"-- player: {config.player_dir}")
+    try:
+        counts = sync_player(config.output_dir, config.player_dir, dry_run=dry_run)
+    except FileNotFoundError as e:
+        print(f"Error: {e}")
+        return 1
+
+    mode = "(dry run) " if dry_run else ""
+    print(
+        f"\nDone {mode}— {counts.copied} copied to player, "
+        f"{counts.removed_player} removed from player, "
+        f"{counts.skipped} up to date, {counts.failed} failed."
     )
     return 0
 
@@ -167,7 +183,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_sync = sub.add_parser("sync", help="download playlist and update the player")
+    p_download = sub.add_parser("download", help="fetch playlist into the local cache")
+    p_download.add_argument(
+        "--dry-run", action="store_true", help="show what would happen, change nothing"
+    )
+    p_sync = sub.add_parser("sync", help="mirror the cache onto the player (offline)")
     p_sync.add_argument(
         "--dry-run", action="store_true", help="show what would happen, change nothing"
     )
@@ -183,6 +203,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "info":
         return cmd_info(config)
+    if args.command == "download":
+        return cmd_download(config, dry_run=args.dry_run)
     if args.command == "sync":
         return cmd_sync(config, dry_run=args.dry_run)
     parser.error(f"unknown command {args.command}")

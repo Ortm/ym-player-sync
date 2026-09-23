@@ -39,6 +39,7 @@ class Config:
     player_dir: Path
     filename_template: str
     source: str | None  # None = auto-detect from playlist_url
+    workers: int = 4  # parallel downloads on the download stage
 
 
 def load_config(path: str | Path) -> Config:
@@ -103,6 +104,13 @@ def load_config(path: str | Path) -> Config:
                 f"got {source!r} (or omit it to auto-detect)"
             )
 
+    try:
+        workers = int(raw.get("workers", 4))
+    except (TypeError, ValueError):
+        raise ValueError("config: 'workers' must be an integer >= 1") from None
+    if workers < 1:
+        raise ValueError("config: 'workers' must be >= 1")
+
     return Config(
         playlist_url=playlist_url,
         token=token,
@@ -113,4 +121,5 @@ def load_config(path: str | Path) -> Config:
         player_dir=player_dir.expanduser(),
         filename_template=template,
         source=source,
+        workers=workers,
     )

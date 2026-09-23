@@ -144,7 +144,7 @@ in
         Unit.Description = "Sync Yandex Music playlist to USB player";
         Service = {
           Type = "oneshot";
-          ExecStart = "${cfg.package}/bin/player-converter -c ${configFile} sync";
+          ExecStart = "${pkgs.bash}/bin/bash -c '${cfg.package}/bin/player-converter -c ${configFile} download && ${cfg.package}/bin/player-converter -c ${configFile} sync'";
         }
         // lib.optionalAttrs (cfg.tokenFile != null) {
           EnvironmentFile = cfg.tokenFile;

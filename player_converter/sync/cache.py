@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -26,6 +27,7 @@ class SyncCounts:
     copied: int = 0
     removed_player: int = 0
     skipped: int = 0
+    failed: int = 0
 
 
 def _load_state(output_dir: Path) -> dict:
@@ -44,14 +46,57 @@ def _save_state(output_dir: Path, state: dict) -> None:
     )
 
 
+def _state_entry(d: DesiredTrack) -> dict:
+    return {
+        "filename": d.filename,
+        "codec": d.variant.codec,
+        "bitrate_kbps": d.variant.bitrate_kbps,
+    }
+
+
+def _download_all(
+    download: Callable[[DesiredTrack, Path], int],
+    pending: list[tuple[DesiredTrack, Path]],
+    dry_run: bool,
+    workers: int,
+) -> list[tuple[DesiredTrack, Path, int, Exception | None]]:
+    """Fetch pending tracks, returning (track, dest, size, error) in order.
+
+    With workers > 1 downloads run in threads; results are still resolved
+    in playlist order so output stays readable and state stays ordered.
+    """
+    if dry_run:
+        return [(d, dest, d.estimated_bytes, None) for d, dest in pending]
+    if workers <= 1 or len(pending) <= 1:
+        out = []
+        for d, dest in pending:
+            try:
+                out.append((d, dest, download(d, dest), None))
+            except Exception as e:  # noqa: BLE001 — per-track tolerance
+                out.append((d, dest, 0, e))
+        return out
+    print(f"  downloading {len(pending)} track(s) with {workers} workers")
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futs = [(d, dest, pool.submit(download, d, dest)) for d, dest in pending]
+        out = []
+        for d, dest, fut in futs:
+            try:
+                out.append((d, dest, fut.result(), None))
+            except Exception as e:  # noqa: BLE001 — per-track tolerance
+                out.append((d, dest, 0, e))
+        return out
+
+
 def sync_cache(
     output_dir: Path,
     desired: list[DesiredTrack],
     download: Callable[[DesiredTrack, Path], int],
     dry_run: bool = False,
+    workers: int = 1,
 ) -> SyncCounts:
     """Mirror desired tracks into output_dir. ``download`` writes bytes
-    for a DesiredTrack to the given path and returns bytes written."""
+    for a DesiredTrack to the given path and returns bytes written.
+    ``workers`` parallelizes downloads (threads; 1 = sequential)."""
     counts = SyncCounts()
     output_dir.mkdir(parents=True, exist_ok=True)
     state = _load_state(output_dir)
@@ -59,6 +104,7 @@ def sync_cache(
 
     wanted_names = {d.filename for d in desired}
     new_saved: dict[str, dict] = {}
+    pending: list[tuple[DesiredTrack, Path]] = []
 
     for d in desired:
         dest = output_dir / d.filename
@@ -73,6 +119,7 @@ def sync_cache(
         )
         if prev and prev.get("filename") == d.filename and dest.is_file() and same_quality:
             counts.skipped += 1
+            new_saved[d.track.key] = _state_entry(d)
         elif (
             prev
             and prev.get("filename") != d.filename
@@ -84,19 +131,25 @@ def sync_cache(
                 os.replace(old, dest)
             counts.renamed += 1
             print(f"  [renumber] {old.name} -> {d.filename}")
+            new_saved[d.track.key] = _state_entry(d)
         else:
-            size = download(d, dest) if not dry_run else d.estimated_bytes
-            counts.downloaded += 1
-            print(
-                f"  [get] {d.filename} "
-                f"({d.variant.codec} {d.variant.bitrate_kbps} kbps, "
-                f"~{size / 1_048_576:.1f} MB)"
-            )
-        new_saved[d.track.key] = {
-            "filename": d.filename,
-            "codec": d.variant.codec,
-            "bitrate_kbps": d.variant.bitrate_kbps,
-        }
+            pending.append((d, dest))
+
+    for d, dest, size, error in _download_all(download, pending, dry_run, workers):
+        if error is not None:
+            # One bad track (stalled host, corrupt stream, transcode
+            # error) skips instead of aborting the sync; it stays out
+            # of the state so the next run retries it.
+            counts.failed += 1
+            print(f"  [fail] {d.filename} ({error})")
+            continue
+        counts.downloaded += 1
+        print(
+            f"  [get] {d.filename} "
+            f"({d.variant.codec} {d.variant.bitrate_kbps} kbps, "
+            f"~{size / 1_048_576:.1f} MB)"
+        )
+        new_saved[d.track.key] = _state_entry(d)
 
     for f in sorted(output_dir.iterdir()):
         if f.name == STATE_FILENAME or not f.is_file():

@@ -50,6 +50,11 @@ QUALITY_FALLBACK = {
 }
 FILE_CODECS = "flac,flac-mp4,mp3,aac,he-aac,aac-mp4,he-aac-mp4"
 
+# Media (stream-host) downloads get a longer timeout than API calls, and
+# each URL is retried — one stalled host must not kill a whole sync.
+DOWNLOAD_TIMEOUT = 60
+DOWNLOAD_ATTEMPTS = 3
+
 # server codec -> output file extension (container decides)
 CONTAINER_EXTENSIONS = {
     "flac": "flac",
@@ -337,7 +342,7 @@ class YandexSource:
         )
 
     def download(self, track: Track, variant: Variant, dest: Path) -> int:
-        data = self._retrieve(random.choice(variant.urls))
+        data = self._retrieve_with_fallback(track, variant.urls)
         if variant.decrypt_key:
             data = decrypt_data(data, variant.decrypt_key)
         if dest.suffix.lower() == ".flac" and variant.extension != "flac":
@@ -351,8 +356,23 @@ class YandexSource:
         os.replace(tmp, dest)
         return len(data)
 
+    def _retrieve_with_fallback(self, track: Track, urls: list[str]) -> bytes:
+        """Fetch from shuffled URLs, retrying stalled hosts with backoff."""
+        candidates = list(urls)
+        random.shuffle(candidates)
+        last_error = "no download URLs" if not candidates else ""
+        for url in candidates:
+            host = url.split("/")[2] if "/" in url else url
+            for attempt in range(1, DOWNLOAD_ATTEMPTS + 1):
+                try:
+                    return self._retrieve(url)
+                except requests.RequestException as e:
+                    last_error = f"{host}: {e.__class__.__name__}"
+                    time.sleep(2 * attempt)
+        raise SourceError(f"download failed for {track.name}: {last_error}")
+
     def _retrieve(self, url: str) -> bytes:
-        with self.session.get(url, stream=True, timeout=self.timeout) as resp:
+        with self.session.get(url, stream=True, timeout=DOWNLOAD_TIMEOUT) as resp:
             resp.raise_for_status()
             chunks = [c for c in resp.iter_content(1 << 20) if c]
         return b"".join(chunks)

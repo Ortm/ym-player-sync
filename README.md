@@ -18,8 +18,10 @@ You need a Yandex Music OAuth token. Keep `config.yaml` private
 
 ```bash
 uv run player-converter info                 # check token + playlist summary
-uv run player-converter sync --dry-run       # preview, change nothing
-uv run player-converter sync                 # download + update player
+uv run player-converter download --dry-run   # preview stage 1, change nothing
+uv run player-converter download             # stage 1: fetch playlist into the cache
+uv run player-converter sync --dry-run       # preview stage 2, change nothing
+uv run player-converter sync                 # stage 2: mirror cache onto player (offline)
 ```
 
 Or install it once (`uv tool install .`) and use `player-converter` directly.
@@ -58,28 +60,34 @@ optionally installs a `player-converter-sync` user service + timer.
 | `token` | OAuth token (`${YM_TOKEN}` supported; `YM_TOKEN` env var is the fallback) |
 | `quality` | Download tier, requested from the API per track — files are kept **as downloaded, no transcoding**, except `.m4a`, which is converted to FLAC (many players can't play MP4 containers; for FLAC-in-MP4 sources this is lossless): `lossless` → best lossless (FLAC), `high` → 320 kbps MP3, `low` → smallest variant (takes least space); exact codec follows the server response |
 | `max_tracks` | Only the first N playlist tracks (`null` = all) |
+| `workers` | Parallel downloads on the `download` stage, `1` = sequential (default `4`) |
 | `max_total_mb` | Cap on estimated total download size; keeps every track that fits, always at least the first (`null` = no cap) |
 | `output_dir` | Local cache dir (downloads + sync state) |
 | `player_dir` | Mounted player path — must exist (fails loudly if the player isn't plugged in) |
 | `filename_template` | Naming, default `{position:0{width}d}-{title} - {artists}.{ext}` → `001-Title - Artist.flac` |
 
-## How a sync works
+## How it works
+
+`download` (needs network + token):
 
 1. Playlist order is fetched, unavailable tracks skipped, `max_tracks` applied.
 2. For each track the variant matching `quality` is picked; sizes are
    estimated from `bitrate × duration` and `max_total_mb` is applied.
 3. The cache (`output_dir`) is mirrored: new tracks downloaded, position
    changes become cheap **renames** (no re-download), removed tracks deleted.
-4. The player (`player_dir`) is mirrored **exactly**: new/changed files
-   copied over, files no longer in the playlist deleted. Non-audio files
-   on the player are left alone; hidden state lives in
-   `output_dir/.player-converter-state.json`.
+
+`sync` (offline — needs only the cache and the plugged-in player):
+
+4. The player (`player_dir`) is mirrored **exactly**: files no longer in
+   the playlist are deleted **first** to free space, then new/changed files
+   are copied over. Non-audio files on the player are left alone; hidden
+   state lives in `output_dir/.player-converter-state.json`.
 
 ## Project structure
 
 ```
 player_converter/
-  cli.py            # argument parsing, `sync` / `info` commands
+  cli.py            # argument parsing, `download` / `sync` / `info` commands
   config.py         # YAML loading + validation
   models.py         # Track, Variant, PlaylistInfo, DesiredTrack
   naming.py         # player-safe filenames + numbering template

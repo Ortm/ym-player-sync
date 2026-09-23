@@ -9,8 +9,12 @@ from .cache import AUDIO_EXTENSIONS, SyncCounts
 
 
 def sync_player(output_dir: Path, player_dir: Path, dry_run: bool = False) -> SyncCounts:
-    """Copy new/changed audio files to the player, delete stale ones.
-    Non-audio files on the player are left alone."""
+    """Mirror cached audio onto the player.
+
+    Stale files are deleted FIRST to free space for incoming copies
+    (players are usually small); then new/changed files are copied.
+    Non-audio files on the player are left alone.
+    """
     counts = SyncCounts()
     if not player_dir.is_dir():
         raise FileNotFoundError(
@@ -21,15 +25,6 @@ def sync_player(output_dir: Path, player_dir: Path, dry_run: bool = False) -> Sy
         for f in output_dir.iterdir()
         if f.is_file() and f.suffix.lower() in AUDIO_EXTENSIONS
     }
-    for name, src in sorted(wanted.items()):
-        dst = player_dir / name
-        if dst.is_file() and dst.stat().st_size == src.stat().st_size:
-            counts.skipped += 1
-            continue
-        if not dry_run:
-            shutil.copy2(src, dst)
-        counts.copied += 1
-        print(f"  [copy] {name}")
     for f in sorted(player_dir.iterdir()):
         if (
             f.is_file()
@@ -40,4 +35,18 @@ def sync_player(output_dir: Path, player_dir: Path, dry_run: bool = False) -> Sy
                 f.unlink()
             counts.removed_player += 1
             print(f"  [del-player] {f.name} (no longer in playlist)")
+    for name, src in sorted(wanted.items()):
+        dst = player_dir / name
+        if dst.is_file() and dst.stat().st_size == src.stat().st_size:
+            counts.skipped += 1
+            continue
+        try:
+            if not dry_run:
+                shutil.copy2(src, dst)
+        except OSError as e:
+            counts.failed += 1
+            print(f"  [fail-player] {name} ({e})")
+            continue
+        counts.copied += 1
+        print(f"  [copy] {name}")
     return counts

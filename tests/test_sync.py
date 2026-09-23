@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from player_converter.limits import apply_limits
 from player_converter.models import DesiredTrack, Track, Variant
 from player_converter.naming import render_filename, sanitize_name
@@ -118,3 +120,106 @@ def test_sync_player_mirrors_exactly(tmp_path):
     # second run: all skipped
     counts = sync_player(cache, player, dry_run=False)
     assert counts.skipped == 2 and counts.copied == 0
+
+
+def test_sync_cache_failure_skips_track_and_retries_next_run(tmp_path):
+    cache = tmp_path / "music"
+    items = [_desired(1), _desired(2)]
+
+    def flaky(desired, dest):
+        if desired.track.key == "1:1":
+            raise RuntimeError("boom")
+        dest.write_bytes(b"ok")
+        return 2
+
+    counts = sync_cache(cache, items, flaky, dry_run=False)
+    assert counts.failed == 1 and counts.downloaded == 1
+    assert not (cache / items[0].filename).exists()
+
+    # next run retries the failed track
+    counts = sync_cache(cache, items, _fake_download(), dry_run=False)
+    assert counts.downloaded == 1 and counts.failed == 0
+    assert (cache / items[0].filename).is_file()
+
+
+def test_sync_player_deletes_before_copying(tmp_path, monkeypatch):
+    import shutil
+
+    cache = tmp_path / "music"
+    player = tmp_path / "player"
+    cache.mkdir()
+    player.mkdir()
+    (cache / "001-new.mp3").write_bytes(b"new")
+    (player / "999-old.mp3").write_bytes(b"old")
+    events = []
+    real_copy = shutil.copy2
+
+    def rec_copy(src, dst):
+        events.append(("copy", Path(dst).name))
+        return real_copy(src, dst)
+
+    orig_unlink = Path.unlink
+
+    def rec_unlink(self):
+        events.append(("del", self.name))
+        return orig_unlink(self)
+
+    monkeypatch.setattr(shutil, "copy2", rec_copy)
+    monkeypatch.setattr(Path, "unlink", rec_unlink)
+    counts = sync_player(cache, player, dry_run=False)
+    assert events[0] == ("del", "999-old.mp3")
+    assert ("copy", "001-new.mp3") in events
+    assert counts.removed_player == 1 and counts.copied == 1
+
+
+def test_sync_player_copy_failure_skips_track(tmp_path, monkeypatch):
+    import shutil
+
+    cache = tmp_path / "music"
+    player = tmp_path / "player"
+    cache.mkdir()
+    player.mkdir()
+    (cache / "001-song.mp3").write_bytes(b"data")
+
+    def boom(src, dst):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(shutil, "copy2", boom)
+    counts = sync_player(cache, player, dry_run=False)
+    assert counts.failed == 1 and counts.copied == 0
+    assert not (player / "001-song.mp3").exists()
+
+
+def test_sync_cache_parallel_matches_sequential(tmp_path):
+    import threading
+
+    cache = tmp_path / "music"
+    items = [_desired(i) for i in (1, 2, 3, 4)]
+    seen_threads = set()
+
+    def download(desired, dest):
+        seen_threads.add(threading.get_ident())
+        dest.write_bytes(b"data")
+        return 4
+
+    counts = sync_cache(cache, items, download, dry_run=False, workers=4)
+    assert counts.downloaded == 4 and counts.failed == 0
+    for item in items:
+        assert (cache / item.filename).is_file()
+    assert len(seen_threads) > 1  # actually ran in parallel
+
+
+def test_sync_cache_parallel_tolerates_failures(tmp_path):
+    cache = tmp_path / "music"
+    items = [_desired(i) for i in (1, 2, 3)]
+
+    def flaky(desired, dest):
+        if desired.track.key == "2:1":
+            raise RuntimeError("boom")
+        dest.write_bytes(b"ok")
+        return 2
+
+    counts = sync_cache(cache, items, flaky, dry_run=False, workers=3)
+    assert counts.downloaded == 2 and counts.failed == 1
+    assert not (cache / items[1].filename).exists()
+    assert (cache / items[0].filename).is_file()
