@@ -1,18 +1,22 @@
 """Mirror the desired track list into the local cache directory.
 
-Tracks already present under the same name are kept; position changes
-become cheap renames (no re-download); anything else managed is deleted.
+Tracks already present under the same name are kept; position changes,
+new naming schemes and foreign filenames become cheap renames (no
+re-download); anything else managed is deleted, so a max_tracks /
+max_total_mb run also prunes whatever no longer fits the queue.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import shutil
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterable
 
+from ..matching import find_by_name
 from ..models import DesiredTrack
 
 AUDIO_EXTENSIONS = (".flac", ".mp3", ".m4a")
@@ -23,6 +27,8 @@ STATE_FILENAME = ".player-converter-state.json"
 class SyncCounts:
     downloaded: int = 0
     renamed: int = 0
+    matched: int = 0  # renamed from a different filename instead of re-downloading
+    adopted: int = 0  # recovered from the player dir into the cache
     removed_cache: int = 0
     copied: int = 0
     removed_player: int = 0
@@ -93,10 +99,13 @@ def sync_cache(
     download: Callable[[DesiredTrack, Path], int],
     dry_run: bool = False,
     workers: int = 1,
+    adopt_from: Iterable[Path] = (),
 ) -> SyncCounts:
     """Mirror desired tracks into output_dir. ``download`` writes bytes
     for a DesiredTrack to the given path and returns bytes written.
-    ``workers`` parallelizes downloads (threads; 1 = sequential)."""
+    ``workers`` parallelizes downloads (threads; 1 = sequential).
+    ``adopt_from`` lists extra directories (e.g. the player) searched for
+    a same-track file under a different name before downloading."""
     counts = SyncCounts()
     output_dir.mkdir(parents=True, exist_ok=True)
     state = _load_state(output_dir)
@@ -105,10 +114,13 @@ def sync_cache(
     wanted_names = {d.filename for d in desired}
     new_saved: dict[str, dict] = {}
     pending: list[tuple[DesiredTrack, Path]] = []
+    claimed: set[Path] = set()  # files taken by another track this run
 
     for d in desired:
         dest = output_dir / d.filename
         prev = saved.get(d.track.key)
+        # names other queued tracks own: never cannibalize those files
+        protected = wanted_names - {d.filename}
         same_quality = (
             prev
             and prev.get("codec") == d.variant.codec
@@ -129,8 +141,26 @@ def sync_cache(
             old = output_dir / prev["filename"]
             if not dry_run:
                 os.replace(old, dest)
+            claimed.add(old)
             counts.renamed += 1
             print(f"  [renumber] {old.name} -> {d.filename}")
+            new_saved[d.track.key] = _state_entry(d)
+        elif (
+            found := _find_elsewhere(d, output_dir, adopt_from, claimed, protected)
+        ) is not None:
+            src, where = found
+            if not dry_run:
+                if where == output_dir:
+                    os.replace(src, dest)
+                else:
+                    shutil.copy2(src, dest)
+            claimed.add(src)
+            if where == output_dir:
+                counts.matched += 1
+                print(f"  [rename] {src.name} -> {d.filename}")
+            else:
+                counts.adopted += 1
+                print(f"  [adopt] {where.name}/{src.name} -> {d.filename}")
             new_saved[d.track.key] = _state_entry(d)
         else:
             pending.append((d, dest))
@@ -151,15 +181,64 @@ def sync_cache(
         )
         new_saved[d.track.key] = _state_entry(d)
 
+    # Delete every managed file that is not part of the current queue —
+    # this is what enforces the track-count / total-size limits. Leftover
+    # .part temp files from interrupted downloads go too.
     for f in sorted(output_dir.iterdir()):
         if f.name == STATE_FILENAME or not f.is_file():
+            continue
+        if f in claimed:
+            continue  # already renamed away during this run
+        if f.name.endswith(".part"):
+            if not dry_run:
+                f.unlink()
+            counts.removed_cache += 1
+            print(f"  [del] {f.name} (leftover partial download)")
             continue
         if f.suffix.lower() in AUDIO_EXTENSIONS and f.name not in wanted_names:
             if not dry_run:
                 f.unlink()
             counts.removed_cache += 1
-            print(f"  [del] {f.name} (no longer in playlist)")
+            print(f"  [del] {f.name} (not in queue)")
 
     if not dry_run:
         _save_state(output_dir, {"tracks": new_saved})
     return counts
+
+
+def _find_elsewhere(
+    d: DesiredTrack,
+    output_dir: Path,
+    adopt_from: Iterable[Path],
+    claimed: set[Path],
+    protected_names: set[str],
+) -> tuple[Path, Path] | None:
+    """Locate this track's audio under a different name.
+
+    Returns (source path, directory it lives in), preferring the cache.
+    The stored extension (what ``filename`` ends with) is what must
+    match — a transcoded track is never a cheap rename.
+    """
+    extension = Path(d.filename).suffix.lstrip(".") or d.variant.extension
+    match = find_by_name(
+        output_dir,
+        d.track,
+        extension,
+        exclude=claimed,
+        exclude_names=protected_names,
+    )
+    if match is not None:
+        return match, output_dir
+    for directory in adopt_from:
+        if directory == output_dir:
+            continue
+        match = find_by_name(
+            directory,
+            d.track,
+            extension,
+            exclude=claimed,
+            exclude_names=protected_names,
+        )
+        if match is not None:
+            return match, directory
+    return None

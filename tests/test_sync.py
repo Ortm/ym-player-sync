@@ -223,3 +223,195 @@ def test_sync_cache_parallel_tolerates_failures(tmp_path):
     assert counts.downloaded == 2 and counts.failed == 1
     assert not (cache / items[1].filename).exists()
     assert (cache / items[0].filename).is_file()
+
+
+# -- old naming scheme / foreign names: rename, never re-download ---------
+
+
+def _fail_download(desired, dest):
+    raise AssertionError("should not download")
+
+
+def test_sync_cache_renames_old_naming_scheme_without_download(tmp_path):
+    cache = tmp_path / "music"
+    cache.mkdir()
+    # files from the previous naming scheme (artist first), no state file
+    (cache / "001-Artist - Song 1.mp3").write_bytes(b"one")
+    (cache / "002-Artist - Song 2.mp3").write_bytes(b"two")
+    wanted = [
+        _desired(1, "001-Song 1 - Artist.mp3"),
+        _desired(2, "002-Song 2 - Artist.mp3"),
+    ]
+
+    counts = sync_cache(cache, wanted, _fail_download, dry_run=False)
+    assert counts.matched == 2 and counts.downloaded == 0 and counts.removed_cache == 0
+    assert sorted(p.name for p in cache.iterdir() if p.suffix == ".mp3") == [
+        "001-Song 1 - Artist.mp3",
+        "002-Song 2 - Artist.mp3",
+    ]
+    # the bytes were moved, not re-fetched
+    assert (cache / "001-Song 1 - Artist.mp3").read_bytes() == b"one"
+
+
+def test_sync_cache_matches_foreign_names_without_position(tmp_path):
+    cache = tmp_path / "music"
+    cache.mkdir()
+    (cache / "Artist - Song 1.mp3").write_bytes(b"one")
+    counts = sync_cache(cache, [_desired(1, "001-Song 1 - Artist.mp3")],
+                        _fail_download, dry_run=False)
+    assert counts.matched == 1 and counts.downloaded == 0
+
+
+def test_sync_cache_redownloads_when_extension_differs(tmp_path):
+    cache = tmp_path / "music"
+    cache.mkdir()
+    (cache / "001-Artist - Song 1.flac").write_bytes(b"flac")
+    calls = []
+
+    def download(d, dest):
+        calls.append(dest.name)
+        dest.write_bytes(b"mp3")
+        return 3
+
+    counts = sync_cache(cache, [_desired(1, "001-Song 1 - Artist.mp3")],
+                        download, dry_run=False)
+    assert counts.downloaded == 1 and counts.matched == 0
+    assert calls == ["001-Song 1 - Artist.mp3"]
+
+
+def test_sync_cache_does_not_reuse_one_file_for_two_tracks(tmp_path):
+    cache = tmp_path / "music"
+    cache.mkdir()
+    (cache / "Artist - Song 1.mp3").write_bytes(b"one")
+    calls = []
+
+    def download(d, dest):
+        calls.append(dest.name)
+        dest.write_bytes(b"x")
+        return 1
+
+    counts = sync_cache(
+        cache,
+        [_desired(1, "001-Song 1 - Artist.mp3"), _desired(2, "002-Song 2 - Artist.mp3")],
+        download,
+        dry_run=False,
+    )
+    assert counts.matched == 1 and counts.downloaded == 1
+    assert calls == ["002-Song 2 - Artist.mp3"]
+
+
+def test_sync_cache_duplicate_tracks_do_not_cannibalize(tmp_path):
+    cache = tmp_path / "music"
+    cache.mkdir()
+    (cache / "Artist - Song 1.mp3").write_bytes(b"one")
+    calls = []
+
+    def download(d, dest):
+        calls.append(dest.name)
+        dest.write_bytes(b"fresh")
+        return 5
+
+    # the same song twice in the playlist: one file on disk feeds one entry
+    counts = sync_cache(
+        cache,
+        [_desired(1, "001-Song 1 - Artist.mp3"), _desired(2, "002-Song 1 - Artist.mp3")],
+        download,
+        dry_run=False,
+    )
+    assert counts.matched == 1 and counts.downloaded == 1
+    assert calls == ["002-Song 1 - Artist.mp3"]
+
+
+def test_sync_cache_adopts_matching_file_from_player(tmp_path):
+    cache = tmp_path / "music"
+    player = tmp_path / "player"
+    player.mkdir()
+    (player / "007-Artist - Song 1.mp3").write_bytes(b"on-player")
+    counts = sync_cache(
+        cache,
+        [_desired(1, "001-Song 1 - Artist.mp3")],
+        _fail_download,
+        dry_run=False,
+        adopt_from=[player],
+    )
+    assert counts.adopted == 1 and counts.downloaded == 0
+    assert (cache / "001-Song 1 - Artist.mp3").read_bytes() == b"on-player"
+    # the player is left alone by the download stage; sync mirrors it
+    assert (player / "007-Artist - Song 1.mp3").is_file()
+
+
+def test_sync_cache_rename_is_noop_in_dry_run(tmp_path):
+    cache = tmp_path / "music"
+    cache.mkdir()
+    (cache / "001-Artist - Song 1.mp3").write_bytes(b"one")
+    counts = sync_cache(
+        cache,
+        [_desired(1, "001-Song 1 - Artist.mp3")],
+        _fail_download,
+        dry_run=True,
+    )
+    assert counts.matched == 1
+    assert (cache / "001-Artist - Song 1.mp3").is_file()  # untouched
+    assert not (cache / "001-Song 1 - Artist.mp3").exists()
+
+
+def test_sync_cache_cleans_partial_downloads(tmp_path):
+    cache = tmp_path / "music"
+    cache.mkdir()
+    (cache / "001-Song 1 - Artist.mp3.part").write_bytes(b"half")
+    counts = sync_cache(cache, [_desired(1, "001-Song 1 - Artist.mp3")],
+                        _fake_download(), dry_run=False)
+    assert counts.removed_cache == 1
+    assert not (cache / "001-Song 1 - Artist.mp3.part").exists()
+    assert (cache / "001-Song 1 - Artist.mp3").is_file()
+
+
+# -- limits prune whatever does not fit the queue --------------------------
+
+
+def test_sync_cache_limit_run_deletes_surplus_tracks(tmp_path):
+    cache = tmp_path / "music"
+    full = [_desired(1), _desired(2), _desired(3)]
+    sync_cache(cache, full, _fake_download(), dry_run=False)
+    assert len([p for p in cache.iterdir() if p.suffix == ".mp3"]) == 3
+
+    # limits shrink the queue to 2 tracks: the third must disappear
+    kept = apply_limits(full, [c.estimated_bytes for c in full], 2, None)
+    counts = sync_cache(cache, kept, _fake_download(), dry_run=False)
+    assert counts.removed_cache == 1
+    assert sorted(p.name for p in cache.iterdir() if p.suffix == ".mp3") == [
+        "001-Artist - Song 1.mp3",
+        "002-Artist - Song 2.mp3",
+    ]
+
+
+def test_sync_cache_size_limit_deletes_over_budget_tracks(tmp_path):
+    cache = tmp_path / "music"
+    full = [_desired(1), _desired(2), _desired(3)]
+    sync_cache(cache, full, _fake_download(), dry_run=False)
+    # budget fits only the first track (each track is 7200 bytes estimated)
+    kept = apply_limits(
+        full, [c.estimated_bytes for c in full], None, 8000 / 1_048_576
+    )
+    assert len(kept) == 1
+    counts = sync_cache(cache, kept, _fake_download(), dry_run=False)
+    assert counts.removed_cache == 2
+
+
+def test_sync_player_limit_run_deletes_surplus_from_player(tmp_path):
+    cache = tmp_path / "music"
+    player = tmp_path / "player"
+    player.mkdir()
+    full = [_desired(1), _desired(2), _desired(3)]
+    sync_cache(cache, full, _fake_download(), dry_run=False)
+    sync_player(cache, player, dry_run=False)
+    assert len([p for p in player.iterdir() if p.suffix == ".mp3"]) == 3
+
+    kept = apply_limits(full, [c.estimated_bytes for c in full], 2, None)
+    sync_cache(cache, kept, _fake_download(), dry_run=False)
+    counts = sync_player(cache, player, dry_run=False)
+    assert counts.removed_player == 1
+    assert sorted(p.name for p in player.iterdir() if p.suffix == ".mp3") == [
+        "001-Artist - Song 1.mp3",
+        "002-Artist - Song 2.mp3",
+    ]

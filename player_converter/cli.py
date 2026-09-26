@@ -143,11 +143,13 @@ def cmd_download(config, dry_run: bool) -> int:
     counts = sync_cache(
         config.output_dir, kept, download,
         dry_run=dry_run, workers=config.workers,
+        adopt_from=[config.player_dir],
     )
 
     mode = "(dry run) " if dry_run else ""
     print(
-        f"\nDone {mode}— {counts.downloaded} downloaded, {counts.renamed} renumbered, "
+        f"\nDone {mode}— {counts.downloaded} downloaded, {counts.matched} renamed, "
+        f"{counts.adopted} recovered from player, {counts.renamed} renumbered, "
         f"{counts.skipped} up to date, {counts.failed} failed, "
         f"{counts.removed_cache} removed from cache."
     )
