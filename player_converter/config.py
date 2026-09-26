@@ -15,6 +15,29 @@ from .sources import AVAILABLE_SOURCES
 VALID_QUALITIES = ("lossless", "high", "low")
 
 _ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+_ENV_FILE_LINE = re.compile(r"^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$")
+
+
+def _token_from_file(path: Path) -> str:
+    """Token out of a file: a bare token, or an EnvironmentFile-style one.
+
+    `YM_TOKEN=...` (what agenix/sops-nix secrets written for systemd look
+    like) and a file containing nothing but the token are both accepted.
+    """
+    found: dict[str, str] = {}
+    bare: list[str] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        match = _ENV_FILE_LINE.match(line)
+        if match is None:
+            bare.append(line)
+        else:
+            found[match.group(1)] = match.group(2).strip().strip("\"'")
+    if found:
+        return found.get("YM_TOKEN") or next(iter(found.values()))
+    return "".join(bare)
 
 
 def _expand_env(value: Any) -> Any:
@@ -40,6 +63,7 @@ class Config:
     filename_template: str
     source: str | None  # None = auto-detect from playlist_url
     workers: int = 4  # parallel downloads on the download stage
+    token_file: Path | None = None  # where `token` was read from, if any
 
 
 def load_config(path: str | Path) -> Config:
@@ -51,15 +75,29 @@ def load_config(path: str | Path) -> Config:
     with path.open(encoding="utf-8") as f:
         loaded = yaml.safe_load(f) or {}
     raw: dict[str, Any] = _expand_env(loaded)
+    base = path.parent
 
     playlist_url = raw.get("playlist_url") or ""
     if not playlist_url.startswith(("http://", "https://")):
         raise ValueError("config: 'playlist_url' must be a Yandex Music playlist URL")
 
     token = raw.get("token") or os.environ.get("YM_TOKEN", "")
+    token_file = raw.get("token_file")
+    token_path = None
+    if not token and token_file:
+        token_path = Path(str(token_file)).expanduser()
+        if not token_path.is_absolute():
+            token_path = (base / token_path).resolve()
+        try:
+            token = _token_from_file(token_path)
+        except OSError as exc:
+            raise ValueError(
+                f"config: cannot read 'token_file' {token_path}: {exc}"
+            ) from None
     if not token:
         raise ValueError(
-            "config: no token — set 'token' in the config or the YM_TOKEN env var"
+            "config: no token — set 'token' (or 'token_file') in the config, "
+            "or the YM_TOKEN env var"
         )
 
     quality = str(raw.get("quality", "lossless")).lower()
@@ -80,7 +118,6 @@ def load_config(path: str | Path) -> Config:
         if max_total_mb <= 0:
             raise ValueError("config: 'max_total_mb' must be > 0")
 
-    base = path.parent
     output_dir = Path(raw.get("output_dir", "./music"))
     if not output_dir.is_absolute():
         output_dir = (base / output_dir).resolve()
@@ -122,4 +159,5 @@ def load_config(path: str | Path) -> Config:
         filename_template=template,
         source=source,
         workers=workers,
+        token_file=token_path,
     )

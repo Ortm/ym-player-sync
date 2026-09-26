@@ -29,27 +29,35 @@ Or install it once (`uv tool install .`) and use `player-converter` directly.
 ## Setup (Nix / Home Manager)
 
 ```bash
-nix run . -- info
-nix profile install .     # or add the overlay to your packages
+nix run . -- info          # build & run straight from the flake
+nix profile install .      # or install it, or use the overlay
 ```
 
-Home Manager (`flake.nix` inputs + overlay + module, see
-`nix/home-manager.nix` header for the full snippet):
+Home Manager — add the flake as an input, then:
 
 ```nix
+inputs.player-converter.url = "github:Ortm/player_coverter";
+# ...
+nixpkgs.overlays = [ inputs.player-converter.overlays.default ];
+imports = [ inputs.player-converter.homeManagerModules.default ];
+
 programs.player-converter = {
   enable = true;
   playlistUrl = "https://music.yandex.ru/users/<login>/playlists/<kind>";
   playerDir = "/run/media/vix/PLAYER/Music";
   quality = "lossless";
-  tokenFile = "/run/agenix/ym-token";  # file with `YM_TOKEN=...`
+  tokenFile = "/run/agenix/ym-token";   # file holding the token
   schedule = "daily";                   # optional systemd user timer
 };
 ```
 
-This writes `~/.config/player-converter/config.yaml`, keeps the token out
-of the Nix store (it comes from the environment / `tokenFile`), and
-optionally installs a `player-converter-sync` user service + timer.
+This writes `~/.config/player-converter/config.yaml`, installs the package,
+and keeps the token out of the Nix store (it is read from `tokenFile` when
+a command runs). With `schedule` set it also installs a
+`player-converter` user service + timer that runs the `download` and
+`sync` stages in order; the unit is skipped while `playerDir` is absent,
+so an unplugged player never fails the timer. Every option is typed, and
+anything the module does not model can be passed through `settings`.
 
 ## Config (`config.yaml`)
 
@@ -58,6 +66,7 @@ optionally installs a `player-converter-sync` user service + timer.
 | `playlist_url` | Playlist URL: `…/users/<login>/playlists/<kind>`, `…/users/<login>/tracks` ("Liked"), `…/playlists/<uid>.<uuid>` (share link) or `…/playlist/<uuid>` |
 | `source` | Music source, `null` = auto-detect from URL (only `yandex` for now) |
 | `token` | OAuth token (`${YM_TOKEN}` supported; `YM_TOKEN` env var is the fallback) |
+| `token_file` | Path of a file holding the token — either the bare token or an `YM_TOKEN=...` line (systemd `EnvironmentFile` / agenix / sops-nix style). Read at startup, so secrets stay out of configs and the Nix store; used when `token`/`YM_TOKEN` are empty |
 | `quality` | Download tier, requested from the API per track — files are kept **as downloaded, no transcoding**, except `.m4a`, which is converted to FLAC (many players can't play MP4 containers; for FLAC-in-MP4 sources this is lossless): `lossless` → best lossless (FLAC), `high` → 320 kbps MP3, `low` → smallest variant (takes least space); exact codec follows the server response |
 | `max_tracks` | Only the first N playlist tracks (`null` = all); everything beyond N is deleted from cache and player |
 | `workers` | Parallel downloads on the `download` stage, `1` = sequential (default `4`) |
@@ -112,9 +121,11 @@ player_converter/
     cache.py        # download/rename/prune local cache (+ state file)
     player.py       # exact-mirror cache -> player
 tests/              # network-free pytest suite (`uv run pytest`)
+flake.nix           # inputs, packages, overlay, HM module, checks, formatter
 nix/
-  package.nix       # Nix package build
-  home-manager.nix  # Home Manager module (config file + systemd timer)
+  package.nix       # nixpkgs-style buildPythonApplication (runs the test suite)
+  module.nix        # Home Manager module (config file + systemd timer)
+  shell.nix         # dev shell (`nix develop`)
 ```
 
 ## Adding a new source
@@ -129,5 +140,6 @@ nix/
 
 ## Notes
 
-- Tests: `uv run pytest` (76 tests, network-free).
+- Tests: `uv run pytest` (80 tests, network-free). `nix flake check` builds
+  the package, runs the same suite in the sandbox, and smoke-tests the CLI.
 - License: MIT.

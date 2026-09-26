@@ -1,29 +1,43 @@
-# Nix packaging for player-converter (called with the flake's nixpkgs).
 {
   lib,
-  python3,
+  python3Packages,
 }:
-python3.pkgs.buildPythonApplication {
+
+python3Packages.buildPythonApplication {
   pname = "player-converter";
-  version = "0.3.0";
+  # Keep in sync with player_converter/__init__.py.
+  version = (lib.importTOML ../pyproject.toml).project.version;
   pyproject = true;
 
-  src = ../.;
+  src = lib.fileset.toSource {
+    root = ../.;
+    fileset = lib.fileset.unions [
+      ../player_converter
+      ../tests
+      ../pyproject.toml
+      ../README.md
+    ];
+  };
 
-  build-system = [ python3.pkgs.hatchling ];
+  build-system = [ python3Packages.hatchling ];
 
-  dependencies = with python3.pkgs; [
-    requests
-    pyyaml
+  dependencies = with python3Packages; [
+    imageio-ffmpeg
     pycryptodome
+    pyyaml
+    requests
   ];
 
-  # No test suite runs in the sandbox (tests are network-free but run via uv/pytest upstream).
-  doCheck = false;
+  nativeCheckInputs = [ python3Packages.pytestCheckHook ];
+
+  pythonImportsCheck = [ "player_converter" ];
 
   meta = {
-    description = "Download a Yandex Music playlist via API and mirror it onto a USB player";
+    description = "Download a Yandex Music playlist and mirror it onto a USB music player";
+    homepage = "https://github.com/Ortm/player_coverter";
+    changelog = "https://github.com/Ortm/player_coverter/blob/main/README.md";
     license = lib.licenses.mit;
     mainProgram = "player-converter";
+    platforms = lib.platforms.unix;
   };
 }

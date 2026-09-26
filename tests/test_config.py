@@ -45,6 +45,74 @@ def test_missing_token_errors(tmp_path, monkeypatch):
         load_config(_write(tmp_path, BASE.replace('token: "tok123"\n', "")))
 
 
+def test_token_file_is_read_when_token_absent(tmp_path, monkeypatch):
+    monkeypatch.delenv("YM_TOKEN", raising=False)
+    secret = tmp_path / "ym-token"
+    secret.write_text("secret-from-file\n", encoding="utf-8")
+    cfg = load_config(_write(tmp_path, BASE.replace('token: "tok123"', 'token_file: "ym-token"')))
+    assert cfg.token == "secret-from-file"
+    assert cfg.token_file == secret
+
+
+def test_token_file_env_expansion(tmp_path, monkeypatch):
+    monkeypatch.setenv("YM_TOKEN_FILE", str(tmp_path / "ym-token"))
+    (tmp_path / "ym-token").write_text("via-env-path", encoding="utf-8")
+    cfg = load_config(
+        _write(tmp_path, BASE.replace('token: "tok123"', 'token_file: "${YM_TOKEN_FILE}"'))
+    )
+    assert cfg.token == "via-env-path"
+
+
+def test_token_wins_over_token_file(tmp_path, monkeypatch):
+    monkeypatch.delenv("YM_TOKEN", raising=False)
+    (tmp_path / "ym-token").write_text("from-file", encoding="utf-8")
+    cfg = load_config(
+        _write(
+            tmp_path,
+            BASE.replace('token: "tok123"', 'token: "literal"\ntoken_file: "ym-token"'),
+        )
+    )
+    assert cfg.token == "literal"
+
+
+def test_token_file_env_file_format(tmp_path, monkeypatch):
+    monkeypatch.delenv("YM_TOKEN", raising=False)
+    (tmp_path / "ym-token").write_text(
+        "# agenix secret\nYM_TOKEN=y0_from_env_file\n", encoding="utf-8"
+    )
+    cfg = load_config(_write(tmp_path, BASE.replace('token: "tok123"', 'token_file: "ym-token"')))
+    assert cfg.token == "y0_from_env_file"
+
+
+def test_token_file_env_file_with_quotes_and_export(tmp_path, monkeypatch):
+    monkeypatch.delenv("YM_TOKEN", raising=False)
+    (tmp_path / "ym-token").write_text("export YM_TOKEN='quoted'\n", encoding="utf-8")
+    cfg = load_config(_write(tmp_path, BASE.replace('token: "tok123"', 'token_file: "ym-token"')))
+    assert cfg.token == "quoted"
+
+
+def test_token_file_other_variable_name(tmp_path, monkeypatch):
+    monkeypatch.delenv("YM_TOKEN", raising=False)
+    (tmp_path / "ym-token").write_text("YANDEX_TOKEN=other-name\n", encoding="utf-8")
+    cfg = load_config(_write(tmp_path, BASE.replace('token: "tok123"', 'token_file: "ym-token"')))
+    assert cfg.token == "other-name"
+
+
+def test_empty_token_file_errors(tmp_path, monkeypatch):
+    monkeypatch.delenv("YM_TOKEN", raising=False)
+    (tmp_path / "ym-token").write_text("\n# nothing here\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="no token"):
+        load_config(_write(tmp_path, BASE.replace('token: "tok123"', 'token_file: "ym-token"')))
+
+
+def test_unreadable_token_file_errors(tmp_path, monkeypatch):
+    monkeypatch.delenv("YM_TOKEN", raising=False)
+    with pytest.raises(ValueError, match="token_file"):
+        load_config(
+            _write(tmp_path, BASE.replace('token: "tok123"', 'token_file: "nonexistent"'))
+        )
+
+
 def test_bad_quality_errors(tmp_path):
     with pytest.raises(ValueError, match="quality"):
         load_config(_write(tmp_path, BASE.replace("quality: high", "quality: ultra")))
