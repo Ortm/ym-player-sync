@@ -35,7 +35,7 @@ python3Packages.buildPythonApplication {
   meta = {
     description = "Download a Yandex Music playlist and mirror it onto a USB music player";
     homepage = "https://github.com/Ortm/player_coverter";
-    changelog = "https://github.com/Ortm/player_coverter/blob/main/README.md";
+    changelog = "https://github.com/Ortm/player_coverter/commits/main";
     license = lib.licenses.mit;
     mainProgram = "player-converter";
     platforms = lib.platforms.unix;

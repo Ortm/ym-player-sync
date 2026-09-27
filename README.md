@@ -1,7 +1,29 @@
 # player-converter
 
-Download a Yandex Music playlist via the API and mirror it onto a USB
-music player: `001-Title - Artist.flac`, `002-…`, …
+[![CI](https://github.com/Ortm/player_coverter/actions/workflows/ci.yml/badge.svg)](https://github.com/Ortm/player_coverter/actions/workflows/ci.yml)
+
+Mirror a Yandex Music playlist onto a USB music player: `001-Title - Artist.flac`,
+`002-…`, … in playlist order.
+
+- Two stages: `download` fills a local cache from the API, `sync` copies it onto the
+  mounted player — so the player only has to be plugged in for the second half.
+- Renames instead of re-downloading: a file already on disk under an older naming
+  scheme (artist-first, no position number, hand-copied) is matched and renamed.
+- Exact mirror: tracks dropped from the playlist — or cut by `max_tracks` /
+  `max_total_mb` — are deleted from cache and player.
+- Quality tiers requested from the API (`lossless` / `high` / `low`); files are kept
+  as downloaded, except `.m4a`, which is converted to FLAC for players that cannot
+  play MP4 containers.
+- New music sources are one file plus a registry line — see
+  [Adding a new source](#adding-a-new-source).
+
+## Requirements
+
+- Python 3.11+ (or Nix), a Yandex Music account, and an OAuth token for it.
+- `lossless` needs an active Plus/Premium subscription: without it the API refuses
+  file downloads on every tier (the CLI says so by name).
+- ffmpeg comes bundled via `imageio-ffmpeg`; a system `ffmpeg` on `PATH` is used if
+  present.
 
 ## Setup (uv)
 
@@ -11,8 +33,16 @@ cp config.example.yaml config.yaml   # then fill in playlist_url, token, player_
 export YM_TOKEN=...                   # or put the token in config.yaml
 ```
 
-You need a Yandex Music OAuth token. Keep `config.yaml` private
-(`chmod 600 config.yaml`, git-ignored) — it carries your token.
+Keep `config.yaml` private (`chmod 600 config.yaml`, git-ignored) — it carries
+your token.
+
+### Getting a token
+
+This project cannot mint a token for you: it is an OAuth token for your own
+account, sent as `Authorization: OAuth <token>`. The flow is the same one the
+[`yandex-music` Python library](https://yandex-music.readthedocs.io/en/main/token.html)
+documents; any token that can read your library works. Check it with
+`player-converter info` before downloading anything.
 
 ## Usage
 
@@ -44,9 +74,9 @@ imports = [ inputs.player-converter.homeManagerModules.default ];
 programs.player-converter = {
   enable = true;
   playlistUrl = "https://music.yandex.ru/users/<login>/playlists/<kind>";
-  playerDir = "/run/media/vix/PLAYER/Music";
+  playerDir = "/run/media/<user>/PLAYER/Music";
   quality = "lossless";
-  tokenFile = "/run/agenix/ym-token";   # file holding the token
+  tokenFile = "/run/secrets/ym-token";  # any file holding the token
   schedule = "daily";                   # optional systemd user timer
 };
 ```
@@ -144,6 +174,16 @@ nix/
 
 ## Notes
 
-- Tests: `uv run pytest` (80 tests, network-free). `nix flake check` builds
-  the package, runs the same suite in the sandbox, and smoke-tests the CLI.
-- License: MIT.
+- Tests: `uv run pytest` (90 tests, network-free). `nix flake check` builds the
+  package, runs the same suite in the sandbox and smoke-tests the CLI; CI runs both
+  on every push.
+- License: MIT (see `LICENSE`).
+
+## Scope and legal
+
+This talks to the (undocumented) Yandex Music API with **your own** OAuth token and
+downloads what your account is entitled to, for keeping a playlist you already have
+access to on a player you own. It does not bypass Yandex's access rules — no
+subscription, no file downloads. Endpoints and the download flow can change without
+notice, and using them is your call: respect Yandex's terms of service and the
+copyright law where you live.

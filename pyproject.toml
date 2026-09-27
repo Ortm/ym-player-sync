@@ -1,9 +1,35 @@
 [project]
 name = "player-converter"
-version = "0.3.0"
-description = "Download a Yandex Music playlist via API and mirror it onto a USB player"
+version = "0.4.0"
+description = "Mirror a Yandex Music playlist onto a USB music player"
 readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = [
+  "yandex-music",
+  "playlist",
+  "download",
+  "usb",
+  "mp3",
+  "flac",
+  "cli",
+]
+authors = [{ name = "Vix" }]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: End Users/Desktop",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Multimedia :: Sound/Audio",
+  "Topic :: Utilities",
+]
 dependencies = [
   "requests>=2.31",
   "pyyaml>=6.0",
@@ -13,6 +39,10 @@ dependencies = [
 
 [project.scripts]
 player-converter = "player_converter.cli:main"
+
+[project.urls]
+Repository = "https://github.com/Ortm/player_coverter"
+Issues = "https://github.com/Ortm/player_coverter/issues"
 
 [build-system]
 requires = ["hatchling"]

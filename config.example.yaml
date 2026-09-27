@@ -5,7 +5,7 @@ playlist_url: "https://music.yandex.ru/users/your-login/playlists/1234"
 # Yandex Music OAuth token. Either keep it out of this file
 #   token: "${YM_TOKEN}"    # expanded from the environment
 # or point at a file that holds it (agenix/sops-nix friendly):
-#   token_file: "/run/agenix/ym-token"
+#   token_file: "/run/secrets/ym-token"
 token: "${YM_TOKEN}"
 # token_file: null
 

@@ -59,7 +59,7 @@ in
     tokenFile = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
       default = null;
-      example = "/run/agenix/ym-token";
+      example = "/run/secrets/ym-token";
       description = ''
         Path to a file holding the token — either the bare token or an
         `YM_TOKEN=...` line (agenix/sops-nix friendly). The path is resolved
