@@ -8,7 +8,7 @@ from pathlib import Path
 
 from . import __version__
 from .audio import output_extension
-from .config import load_config
+from .config import default_config_path, load_config
 from .limits import apply_limits
 from .models import DesiredTrack
 from .naming import render_filename
@@ -181,7 +181,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument(
-        "-c", "--config", default="config.yaml", help="config file (default: config.yaml)"
+        "-c",
+        "--config",
+        default=None,
+        help=(
+            "config file (default: ./config.yaml, falling back to "
+            "~/.config/player-converter/config.yaml)"
+        ),
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -198,7 +204,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        config = load_config(args.config)
+        config = load_config(args.config or default_config_path())
     except (FileNotFoundError, ValueError) as e:
         print(f"Error: {e}")
         return 2

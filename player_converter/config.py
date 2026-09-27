@@ -66,6 +66,29 @@ class Config:
     token_file: Path | None = None  # where `token` was read from, if any
 
 
+def xdg_config_dir() -> Path:
+    """The user's config dir ($XDG_CONFIG_HOME, else ~/.config)."""
+    return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+
+
+def default_config_path() -> Path:
+    """Config path used when `--config` is not given.
+
+    ``./config.yaml`` wins, so running from a checkout keeps working; the
+    XDG location is what the Nix/Home Manager module installs, so an
+    installed copy finds its own config. With neither present the first
+    candidate is returned, so the error names the familiar path.
+    """
+    candidates = [
+        Path("config.yaml"),
+        xdg_config_dir() / "player-converter" / "config.yaml",
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return candidates[0]
+
+
 def load_config(path: str | Path) -> Config:
     path = Path(path)
     if not path.is_file():

@@ -75,6 +75,10 @@ anything the module does not model can be passed through `settings`.
 | `player_dir` | Mounted player path — must exist (fails loudly if the player isn't plugged in) |
 | `filename_template` | Naming, default `{position:0{width}d}-{title} - {artists}.{ext}` → `001-Title - Artist.flac` |
 
+The config is looked up as `--config` → `./config.yaml` → `~/.config/player-converter/config.yaml`
+(the last one is where the Home Manager module installs it, so an installed
+copy needs no flags).
+
 ## How it works
 
 `download` (needs network + token):

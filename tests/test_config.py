@@ -1,6 +1,8 @@
+from pathlib import Path
+
 import pytest
 
-from player_converter.config import load_config
+from player_converter.config import default_config_path, load_config
 
 
 def _write(tmp_path, text):
@@ -162,3 +164,64 @@ def test_source_explicit(tmp_path):
 def test_source_unknown_errors(tmp_path):
     with pytest.raises(ValueError, match="source"):
         load_config(_write(tmp_path, BASE + "source: spotify\n"))
+
+
+# -- config discovery when --config is not given ---------------------------
+
+
+def test_default_config_prefers_cwd(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yaml").write_text(BASE, encoding="utf-8")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    assert default_config_path() == Path("config.yaml")
+
+
+def test_default_config_falls_back_to_xdg(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    xdg = tmp_path / "xdg"
+    (xdg / "player-converter").mkdir(parents=True)
+    (xdg / "player-converter" / "config.yaml").write_text(BASE, encoding="utf-8")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
+    assert default_config_path() == xdg / "player-converter" / "config.yaml"
+    # the fallback is loadable as-is (this is where the Nix module puts it)
+    assert load_config(default_config_path()).quality == "high"
+
+
+def test_default_config_without_xdg_env(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    home = tmp_path / "home"
+    (home / ".config" / "player-converter").mkdir(parents=True)
+    (home / ".config" / "player-converter" / "config.yaml").write_text(BASE, encoding="utf-8")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    assert default_config_path() == home / ".config" / "player-converter" / "config.yaml"
+
+
+def test_default_config_falls_back_to_cwd_path(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "empty"))
+    assert default_config_path() == Path("config.yaml")
+    with pytest.raises(FileNotFoundError):
+        load_config(default_config_path())
+
+
+def test_cli_resolves_xdg_config(tmp_path, monkeypatch):
+    """`player-converter info` finds the installed config without -c."""
+    from player_converter import cli
+
+    xdg = tmp_path / "xdg"
+    (xdg / "player-converter").mkdir(parents=True)
+    (xdg / "player-converter" / "config.yaml").write_text(
+        BASE + "workers: 2\n", encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
+    seen = {}
+
+    def fake_info(config):
+        seen.update(workers=config.workers)
+        return 0
+
+    monkeypatch.setattr(cli, "cmd_info", fake_info)
+    assert cli.main(["info"]) == 0
+    assert seen == {"workers": 2}
