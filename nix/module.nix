@@ -6,7 +6,7 @@
 }:
 
 let
-  cfg = config.programs.music-sync;
+  cfg = config.programs.ym-player-sync;
 
   yamlFormat = pkgs.formats.yaml { };
 
@@ -26,13 +26,13 @@ let
     }
     // cfg.settings;
 
-  configFile = yamlFormat.generate "music-sync.yaml" settings;
+  configFile = yamlFormat.generate "ym-player-sync.yaml" settings;
 in
 {
-  options.programs.music-sync = {
-    enable = lib.mkEnableOption "music-sync, a Yandex Music playlist to USB player sync";
+  options.programs.ym-player-sync = {
+    enable = lib.mkEnableOption "ym-player-sync, a Yandex Music playlist to USB player sync";
 
-    package = lib.mkPackageOption pkgs "music-sync" { };
+    package = lib.mkPackageOption pkgs "ym-player-sync" { };
 
     playlistUrl = lib.mkOption {
       type = lib.types.str;
@@ -103,7 +103,7 @@ in
 
     outputDir = lib.mkOption {
       type = lib.types.str;
-      default = "${config.home.homeDirectory}/Music/music-sync";
+      default = "${config.home.homeDirectory}/Music/ym-player-sync";
       description = "Local staging directory: downloaded files and sync state live here.";
     };
 
@@ -125,7 +125,7 @@ in
       example = "daily";
       description = ''
         `OnCalendar` schedule for a systemd user timer running
-        `music-sync download` followed by `music-sync sync`.
+        `ym-player-sync download` followed by `ym-player-sync sync`.
         Null disables the timer.
       '';
     };
@@ -133,17 +133,17 @@ in
 
   config = lib.mkIf cfg.enable {
     assertions = lib.optional (cfg.schedule != null) (
-      lib.hm.assertions.assertPlatform "programs.music-sync" pkgs lib.platforms.linux
+      lib.hm.assertions.assertPlatform "programs.ym-player-sync" pkgs lib.platforms.linux
     );
 
     home.packages = [ cfg.package ];
 
-    xdg.configFile."music-sync/config.yaml".source = configFile;
+    xdg.configFile."ym-player-sync/config.yaml".source = configFile;
 
-    systemd.user.services.music-sync = lib.mkIf (cfg.schedule != null) {
+    systemd.user.services.ym-player-sync = lib.mkIf (cfg.schedule != null) {
       Unit = {
         Description = "Sync a Yandex Music playlist onto a USB player";
-        Documentation = [ "https://github.com/Ortm/music-sync" ];
+        Documentation = [ "https://github.com/Ortm/ym-player-sync" ];
         # Runs only while the player is plugged in; a missing player stays
         # a failure (never a silent partial sync).
         ConditionPathIsDirectory = cfg.playerDir;
@@ -158,15 +158,15 @@ in
       };
     };
 
-    systemd.user.timers.music-sync = lib.mkIf (cfg.schedule != null) {
+    systemd.user.timers.ym-player-sync = lib.mkIf (cfg.schedule != null) {
       Unit = {
         Description = "Sync a Yandex Music playlist onto a USB player";
-        Documentation = [ "https://github.com/Ortm/music-sync" ];
+        Documentation = [ "https://github.com/Ortm/ym-player-sync" ];
       };
 
       Timer = {
         OnCalendar = cfg.schedule;
-        Unit = "music-sync.service";
+        Unit = "ym-player-sync.service";
       };
 
       Install.WantedBy = [ "timers.target" ];

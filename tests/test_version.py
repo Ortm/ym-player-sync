@@ -3,7 +3,7 @@
 import tomllib
 from pathlib import Path
 
-from music_sync import __version__
+from ym_player_sync import __version__
 
 
 def test_version_matches_pyproject():
@@ -11,6 +11,6 @@ def test_version_matches_pyproject():
     with pyproject.open("rb") as f:
         declared = tomllib.load(f)["project"]["version"]
     assert __version__ == declared, (
-        "music_sync/__init__.py and pyproject.toml disagree; "
+        "ym_player_sync/__init__.py and pyproject.toml disagree; "
         "the Nix package reads the version from pyproject.toml"
     )

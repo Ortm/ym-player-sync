@@ -2,8 +2,8 @@
 
 import pytest
 
-from music_sync.sources import AuthError, SourceError
-from music_sync.sources.yandex import YandexSource
+from ym_player_sync.sources import AuthError, SourceError
+from ym_player_sync.sources.yandex import YandexSource
 
 PAYLOAD = {
     "title": "Shared",
@@ -55,7 +55,7 @@ def test_no_retry_on_auth_error():
 
 
 def test_parse_likes_url():
-    from music_sync.sources.yandex import parse_playlist_url
+    from ym_player_sync.sources.yandex import parse_playlist_url
 
     assert parse_playlist_url("https://music.yandex.ru/users/example-user/tracks") == (
         "likes",

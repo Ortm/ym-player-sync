@@ -1,9 +1,9 @@
 from pathlib import Path
 
-from music_sync.limits import apply_limits
-from music_sync.models import DesiredTrack, Track, Variant
-from music_sync.naming import render_filename, sanitize_name
-from music_sync.sync import sync_cache, sync_player
+from ym_player_sync.limits import apply_limits
+from ym_player_sync.models import DesiredTrack, Track, Variant
+from ym_player_sync.naming import render_filename, sanitize_name
+from ym_player_sync.sync import sync_cache, sync_player
 
 
 def _meta(i, title="Song", artists=("Artist",)):

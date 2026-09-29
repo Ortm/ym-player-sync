@@ -1,6 +1,6 @@
-# music-sync
+# ym-player-sync
 
-[![CI](https://github.com/Ortm/music-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/Ortm/music-sync/actions/workflows/ci.yml)
+[![CI](https://github.com/Ortm/ym-player-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/Ortm/ym-player-sync/actions/workflows/ci.yml)
 
 Mirror a Yandex Music playlist onto a USB music player: `001-Title - Artist.flac`,
 `002-…`, … in playlist order.
@@ -42,19 +42,19 @@ This project cannot mint a token for you: it is an OAuth token for your own
 account, sent as `Authorization: OAuth <token>`. The flow is the same one the
 [`yandex-music` Python library](https://yandex-music.readthedocs.io/en/main/token.html)
 documents; any token that can read your library works. Check it with
-`music-sync info` before downloading anything.
+`ym-player-sync info` before downloading anything.
 
 ## Usage
 
 ```bash
-uv run music-sync info               # check token + playlist summary
-uv run music-sync download --dry-run # preview stage 1, change nothing
-uv run music-sync download           # stage 1: fetch playlist into the cache
-uv run music-sync sync --dry-run     # preview stage 2, change nothing
-uv run music-sync sync               # stage 2: mirror cache onto player (offline)
+uv run ym-player-sync info               # check token + playlist summary
+uv run ym-player-sync download --dry-run # preview stage 1, change nothing
+uv run ym-player-sync download           # stage 1: fetch playlist into the cache
+uv run ym-player-sync sync --dry-run     # preview stage 2, change nothing
+uv run ym-player-sync sync               # stage 2: mirror cache onto player (offline)
 ```
 
-Or install it once (`uv tool install .`) and use `music-sync` directly.
+Or install it once (`uv tool install .`) and use `ym-player-sync` directly.
 
 ## Setup (Nix / Home Manager)
 
@@ -66,12 +66,12 @@ nix profile install .      # or install it, or use the overlay
 Home Manager — add the flake as an input, then:
 
 ```nix
-inputs.music-sync.url = "github:Ortm/music-sync";
+inputs.ym-player-sync.url = "github:Ortm/ym-player-sync";
 # ...
-nixpkgs.overlays = [ inputs.music-sync.overlays.default ];
-imports = [ inputs.music-sync.homeManagerModules.default ];
+nixpkgs.overlays = [ inputs.ym-player-sync.overlays.default ];
+imports = [ inputs.ym-player-sync.homeManagerModules.default ];
 
-programs.music-sync = {
+programs.ym-player-sync = {
   enable = true;
   playlistUrl = "https://music.yandex.ru/users/<login>/playlists/<kind>";
   playerDir = "/run/media/<user>/PLAYER/Music";
@@ -81,10 +81,10 @@ programs.music-sync = {
 };
 ```
 
-This writes `~/.config/music-sync/config.yaml`, installs the package,
+This writes `~/.config/ym-player-sync/config.yaml`, installs the package,
 and keeps the token out of the Nix store (it is read from `tokenFile` when
 a command runs). With `schedule` set it also installs a
-`music-sync` user service + timer that runs the `download` and
+`ym-player-sync` user service + timer that runs the `download` and
 `sync` stages in order; the unit is skipped while `playerDir` is absent,
 so an unplugged player never fails the timer. Every option is typed, and
 anything the module does not model can be passed through `settings`.
@@ -105,7 +105,7 @@ anything the module does not model can be passed through `settings`.
 | `player_dir` | Mounted player path — must exist (fails loudly if the player isn't plugged in) |
 | `filename_template` | Naming, default `{position:0{width}d}-{title} - {artists}.{ext}` → `001-Title - Artist.flac` |
 
-The config is looked up as `--config` → `./config.yaml` → `~/.config/music-sync/config.yaml`
+The config is looked up as `--config` → `./config.yaml` → `~/.config/ym-player-sync/config.yaml`
 (the last one is where the Home Manager module installs it, so an installed
 copy needs no flags).
 
@@ -135,12 +135,12 @@ copy needs no flags).
 4. The player (`player_dir`) is mirrored **exactly**: files no longer in
    the queue are deleted **first** to free space, then new/changed files
    are copied over. Non-audio files on the player are left alone; hidden
-   state lives in `output_dir/.music-sync-state.json`.
+   state lives in `output_dir/.ym-player-sync-state.json`.
 
 ## Project structure
 
 ```
-music_sync/
+ym_player_sync/
   cli.py            # argument parsing, `download` / `sync` / `info` commands
   config.py         # YAML loading + validation
   models.py         # Track, Variant, PlaylistInfo, DesiredTrack

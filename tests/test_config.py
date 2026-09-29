@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from music_sync.config import default_config_path, load_config
+from ym_player_sync.config import default_config_path, load_config
 
 
 def _write(tmp_path, text):
@@ -179,10 +179,10 @@ def test_default_config_prefers_cwd(tmp_path, monkeypatch):
 def test_default_config_falls_back_to_xdg(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     xdg = tmp_path / "xdg"
-    (xdg / "music-sync").mkdir(parents=True)
-    (xdg / "music-sync" / "config.yaml").write_text(BASE, encoding="utf-8")
+    (xdg / "ym-player-sync").mkdir(parents=True)
+    (xdg / "ym-player-sync" / "config.yaml").write_text(BASE, encoding="utf-8")
     monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
-    assert default_config_path() == xdg / "music-sync" / "config.yaml"
+    assert default_config_path() == xdg / "ym-player-sync" / "config.yaml"
     # the fallback is loadable as-is (this is where the Nix module puts it)
     assert load_config(default_config_path()).quality == "high"
 
@@ -190,11 +190,11 @@ def test_default_config_falls_back_to_xdg(tmp_path, monkeypatch):
 def test_default_config_without_xdg_env(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     home = tmp_path / "home"
-    (home / ".config" / "music-sync").mkdir(parents=True)
-    (home / ".config" / "music-sync" / "config.yaml").write_text(BASE, encoding="utf-8")
+    (home / ".config" / "ym-player-sync").mkdir(parents=True)
+    (home / ".config" / "ym-player-sync" / "config.yaml").write_text(BASE, encoding="utf-8")
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
-    assert default_config_path() == home / ".config" / "music-sync" / "config.yaml"
+    assert default_config_path() == home / ".config" / "ym-player-sync" / "config.yaml"
 
 
 def test_default_config_falls_back_to_cwd_path(tmp_path, monkeypatch):
@@ -206,12 +206,12 @@ def test_default_config_falls_back_to_cwd_path(tmp_path, monkeypatch):
 
 
 def test_cli_resolves_xdg_config(tmp_path, monkeypatch):
-    """`music-sync info` finds the installed config without -c."""
-    from music_sync import cli
+    """`ym-player-sync info` finds the installed config without -c."""
+    from ym_player_sync import cli
 
     xdg = tmp_path / "xdg"
-    (xdg / "music-sync").mkdir(parents=True)
-    (xdg / "music-sync" / "config.yaml").write_text(
+    (xdg / "ym-player-sync").mkdir(parents=True)
+    (xdg / "ym-player-sync" / "config.yaml").write_text(
         BASE + "workers: 2\n", encoding="utf-8"
     )
     monkeypatch.chdir(tmp_path)

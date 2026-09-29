@@ -1,4 +1,4 @@
-"""music-sync CLI: sync / info."""
+"""ym-player-sync CLI: sync / info."""
 
 from __future__ import annotations
 
@@ -176,7 +176,7 @@ def cmd_sync(config, dry_run: bool) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="music-sync",
+        prog="ym-player-sync",
         description="Download a Yandex Music playlist and mirror it onto a USB player.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -186,7 +186,7 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help=(
             "config file (default: ./config.yaml, falling back to "
-            "~/.config/music-sync/config.yaml)"
+            "~/.config/ym-player-sync/config.yaml)"
         ),
     )
     sub = parser.add_subparsers(dest="command", required=True)

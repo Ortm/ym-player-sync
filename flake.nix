@@ -17,17 +17,17 @@
     in
     {
       packages = forAllSystems (system: {
-        music-sync = nixpkgs.legacyPackages.${system}.callPackage ./nix/package.nix { };
-        default = self.packages.${system}.music-sync;
+        ym-player-sync = nixpkgs.legacyPackages.${system}.callPackage ./nix/package.nix { };
+        default = self.packages.${system}.ym-player-sync;
       });
 
       overlays.default = final: _: {
-        music-sync = final.callPackage ./nix/package.nix { };
+        ym-player-sync = final.callPackage ./nix/package.nix { };
       };
 
       homeManagerModules = {
         default = import ./nix/module.nix;
-        music-sync = self.homeManagerModules.default;
+        ym-player-sync = self.homeManagerModules.default;
       };
 
       devShells = forAllSystems (system: {
@@ -38,21 +38,21 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
-          package = self.packages.${system}.music-sync;
+          package = self.packages.${system}.ym-player-sync;
         in
         {
           inherit package;
 
           cli =
-            pkgs.runCommand "music-sync-cli-check"
+            pkgs.runCommand "ym-player-sync-cli-check"
               {
                 inherit (package) version;
                 nativeBuildInputs = [ package ];
               }
               ''
                 export HOME=$PWD
-                music-sync --version | grep -qF "music-sync $version"
-                music-sync --help | grep -qF "sync"
+                ym-player-sync --version | grep -qF "ym-player-sync $version"
+                ym-player-sync --help | grep -qF "sync"
                 touch $out
               '';
         }
@@ -63,7 +63,7 @@
       apps = forAllSystems (system: {
         default = {
           type = "app";
-          program = nixpkgs.lib.getExe self.packages.${system}.music-sync;
+          program = nixpkgs.lib.getExe self.packages.${system}.ym-player-sync;
         };
       });
     };

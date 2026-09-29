@@ -2,7 +2,7 @@ import subprocess
 
 import pytest
 
-from music_sync.audio import (
+from ym_player_sync.audio import (
     ffmpeg_exe,
     needs_transcode,
     output_extension,
