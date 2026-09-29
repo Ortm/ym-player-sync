@@ -20,7 +20,7 @@ from ..matching import find_by_name
 from ..models import DesiredTrack
 
 AUDIO_EXTENSIONS = (".flac", ".mp3", ".m4a")
-STATE_FILENAME = ".player-converter-state.json"
+STATE_FILENAME = ".music-sync-state.json"
 
 
 @dataclass

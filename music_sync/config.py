@@ -81,7 +81,7 @@ def default_config_path() -> Path:
     """
     candidates = [
         Path("config.yaml"),
-        xdg_config_dir() / "player-converter" / "config.yaml",
+        xdg_config_dir() / "music-sync" / "config.yaml",
     ]
     for candidate in candidates:
         if candidate.is_file():

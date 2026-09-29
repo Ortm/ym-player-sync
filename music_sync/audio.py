@@ -49,7 +49,7 @@ def ffmpeg_exe() -> str:
 def transcode_to_flac(data: bytes, src_ext: str = "m4a") -> bytes:
     """Transcode one audio blob (e.g. ALAC/AAC-in-MP4) to FLAC bytes."""
     exe = ffmpeg_exe()
-    with tempfile.TemporaryDirectory(prefix="player-converter-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="music-sync-") as tmp:
         src = Path(tmp) / f"in.{src_ext.lstrip('.') or 'm4a'}"
         dst = Path(tmp) / "out.flac"
         src.write_bytes(data)

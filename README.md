@@ -1,6 +1,6 @@
-# player-converter
+# music-sync
 
-[![CI](https://github.com/Ortm/player_coverter/actions/workflows/ci.yml/badge.svg)](https://github.com/Ortm/player_coverter/actions/workflows/ci.yml)
+[![CI](https://github.com/Ortm/music-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/Ortm/music-sync/actions/workflows/ci.yml)
 
 Mirror a Yandex Music playlist onto a USB music player: `001-Title - Artist.flac`,
 `002-…`, … in playlist order.
@@ -42,19 +42,19 @@ This project cannot mint a token for you: it is an OAuth token for your own
 account, sent as `Authorization: OAuth <token>`. The flow is the same one the
 [`yandex-music` Python library](https://yandex-music.readthedocs.io/en/main/token.html)
 documents; any token that can read your library works. Check it with
-`player-converter info` before downloading anything.
+`music-sync info` before downloading anything.
 
 ## Usage
 
 ```bash
-uv run player-converter info                 # check token + playlist summary
-uv run player-converter download --dry-run   # preview stage 1, change nothing
-uv run player-converter download             # stage 1: fetch playlist into the cache
-uv run player-converter sync --dry-run       # preview stage 2, change nothing
-uv run player-converter sync                 # stage 2: mirror cache onto player (offline)
+uv run music-sync info               # check token + playlist summary
+uv run music-sync download --dry-run # preview stage 1, change nothing
+uv run music-sync download           # stage 1: fetch playlist into the cache
+uv run music-sync sync --dry-run     # preview stage 2, change nothing
+uv run music-sync sync               # stage 2: mirror cache onto player (offline)
 ```
 
-Or install it once (`uv tool install .`) and use `player-converter` directly.
+Or install it once (`uv tool install .`) and use `music-sync` directly.
 
 ## Setup (Nix / Home Manager)
 
@@ -66,12 +66,12 @@ nix profile install .      # or install it, or use the overlay
 Home Manager — add the flake as an input, then:
 
 ```nix
-inputs.player-converter.url = "github:Ortm/player_coverter";
+inputs.music-sync.url = "github:Ortm/music-sync";
 # ...
-nixpkgs.overlays = [ inputs.player-converter.overlays.default ];
-imports = [ inputs.player-converter.homeManagerModules.default ];
+nixpkgs.overlays = [ inputs.music-sync.overlays.default ];
+imports = [ inputs.music-sync.homeManagerModules.default ];
 
-programs.player-converter = {
+programs.music-sync = {
   enable = true;
   playlistUrl = "https://music.yandex.ru/users/<login>/playlists/<kind>";
   playerDir = "/run/media/<user>/PLAYER/Music";
@@ -81,10 +81,10 @@ programs.player-converter = {
 };
 ```
 
-This writes `~/.config/player-converter/config.yaml`, installs the package,
+This writes `~/.config/music-sync/config.yaml`, installs the package,
 and keeps the token out of the Nix store (it is read from `tokenFile` when
 a command runs). With `schedule` set it also installs a
-`player-converter` user service + timer that runs the `download` and
+`music-sync` user service + timer that runs the `download` and
 `sync` stages in order; the unit is skipped while `playerDir` is absent,
 so an unplugged player never fails the timer. Every option is typed, and
 anything the module does not model can be passed through `settings`.
@@ -105,7 +105,7 @@ anything the module does not model can be passed through `settings`.
 | `player_dir` | Mounted player path — must exist (fails loudly if the player isn't plugged in) |
 | `filename_template` | Naming, default `{position:0{width}d}-{title} - {artists}.{ext}` → `001-Title - Artist.flac` |
 
-The config is looked up as `--config` → `./config.yaml` → `~/.config/player-converter/config.yaml`
+The config is looked up as `--config` → `./config.yaml` → `~/.config/music-sync/config.yaml`
 (the last one is where the Home Manager module installs it, so an installed
 copy needs no flags).
 
@@ -135,12 +135,12 @@ copy needs no flags).
 4. The player (`player_dir`) is mirrored **exactly**: files no longer in
    the queue are deleted **first** to free space, then new/changed files
    are copied over. Non-audio files on the player are left alone; hidden
-   state lives in `output_dir/.player-converter-state.json`.
+   state lives in `output_dir/.music-sync-state.json`.
 
 ## Project structure
 
 ```
-player_converter/
+music_sync/
   cli.py            # argument parsing, `download` / `sync` / `info` commands
   config.py         # YAML loading + validation
   models.py         # Track, Variant, PlaylistInfo, DesiredTrack
@@ -181,9 +181,6 @@ nix/
 
 ## Scope and legal
 
-This talks to the (undocumented) Yandex Music API with **your own** OAuth token and
-downloads what your account is entitled to, for keeping a playlist you already have
-access to on a player you own. It does not bypass Yandex's access rules — no
-subscription, no file downloads. Endpoints and the download flow can change without
-notice, and using them is your call: respect Yandex's terms of service and the
-copyright law where you live.
+This talks to the undocumented Yandex Music API with **your own** OAuth token.
+Endpoints and the download flow can change without notice, and using them is your
+call: respect Yandex's terms of service and the copyright law where you live.

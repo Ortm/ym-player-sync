@@ -1,9 +1,9 @@
 from pathlib import Path
 
-from player_converter.limits import apply_limits
-from player_converter.models import DesiredTrack, Track, Variant
-from player_converter.naming import render_filename, sanitize_name
-from player_converter.sync import sync_cache, sync_player
+from music_sync.limits import apply_limits
+from music_sync.models import DesiredTrack, Track, Variant
+from music_sync.naming import render_filename, sanitize_name
+from music_sync.sync import sync_cache, sync_player
 
 
 def _meta(i, title="Song", artists=("Artist",)):

@@ -5,9 +5,9 @@ import hmac
 import pytest
 from Crypto.Cipher import AES
 
-from player_converter.models import Track, Variant
-from player_converter.sources import detect_source, get_source
-from player_converter.sources.yandex import (
+from music_sync.models import Track, Variant
+from music_sync.sources import detect_source, get_source
+from music_sync.sources.yandex import (
     CONTAINER_EXTENSIONS,
     QUALITY_VALUES,
     SIGN_KEY,
@@ -212,7 +212,7 @@ def test_retrieve_falls_over_to_next_url(tmp_path, monkeypatch):
 
     import requests
 
-    from player_converter.sources import SourceError
+    from music_sync.sources import SourceError
 
     monkeypatch.setattr(time, "sleep", lambda s: None)
     monkeypatch.setattr(random, "shuffle", lambda x: None)

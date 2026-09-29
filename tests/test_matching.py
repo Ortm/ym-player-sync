@@ -1,11 +1,11 @@
-from player_converter.matching import (
+from music_sync.matching import (
     find_by_name,
     normalize,
     strip_position_prefix,
     tokens,
     track_tokens,
 )
-from player_converter.models import Track
+from music_sync.models import Track
 
 
 def _track(title="Song", artists=("Artist",)):

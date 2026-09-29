@@ -17,17 +17,17 @@
     in
     {
       packages = forAllSystems (system: {
-        player-converter = nixpkgs.legacyPackages.${system}.callPackage ./nix/package.nix { };
-        default = self.packages.${system}.player-converter;
+        music-sync = nixpkgs.legacyPackages.${system}.callPackage ./nix/package.nix { };
+        default = self.packages.${system}.music-sync;
       });
 
       overlays.default = final: _: {
-        player-converter = final.callPackage ./nix/package.nix { };
+        music-sync = final.callPackage ./nix/package.nix { };
       };
 
       homeManagerModules = {
         default = import ./nix/module.nix;
-        player-converter = self.homeManagerModules.default;
+        music-sync = self.homeManagerModules.default;
       };
 
       devShells = forAllSystems (system: {
@@ -38,21 +38,21 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
-          package = self.packages.${system}.player-converter;
+          package = self.packages.${system}.music-sync;
         in
         {
           inherit package;
 
           cli =
-            pkgs.runCommand "player-converter-cli-check"
+            pkgs.runCommand "music-sync-cli-check"
               {
                 inherit (package) version;
                 nativeBuildInputs = [ package ];
               }
               ''
                 export HOME=$PWD
-                player-converter --version | grep -qF "player-converter $version"
-                player-converter --help | grep -qF "sync"
+                music-sync --version | grep -qF "music-sync $version"
+                music-sync --help | grep -qF "sync"
                 touch $out
               '';
         }
@@ -63,7 +63,7 @@
       apps = forAllSystems (system: {
         default = {
           type = "app";
-          program = nixpkgs.lib.getExe self.packages.${system}.player-converter;
+          program = nixpkgs.lib.getExe self.packages.${system}.music-sync;
         };
       });
     };

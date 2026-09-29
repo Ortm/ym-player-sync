@@ -4,15 +4,15 @@
 }:
 
 python3Packages.buildPythonApplication {
-  pname = "player-converter";
-  # Keep in sync with player_converter/__init__.py.
+  pname = "music-sync";
+  # Keep in sync with music_sync/__init__.py.
   version = (lib.importTOML ../pyproject.toml).project.version;
   pyproject = true;
 
   src = lib.fileset.toSource {
     root = ../.;
     fileset = lib.fileset.unions [
-      ../player_converter
+      ../music_sync
       ../tests
       ../pyproject.toml
       ../README.md
@@ -30,14 +30,14 @@ python3Packages.buildPythonApplication {
 
   nativeCheckInputs = [ python3Packages.pytestCheckHook ];
 
-  pythonImportsCheck = [ "player_converter" ];
+  pythonImportsCheck = [ "music_sync" ];
 
   meta = {
     description = "Download a Yandex Music playlist and mirror it onto a USB music player";
-    homepage = "https://github.com/Ortm/player_coverter";
-    changelog = "https://github.com/Ortm/player_coverter/commits/main";
+    homepage = "https://github.com/Ortm/music-sync";
+    changelog = "https://github.com/Ortm/music-sync/commits/main";
     license = lib.licenses.mit;
-    mainProgram = "player-converter";
+    mainProgram = "music-sync";
     platforms = lib.platforms.unix;
   };
 }

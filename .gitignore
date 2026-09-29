@@ -6,7 +6,7 @@ __pycache__/
 build/
 dist/
 *.egg-info/
-# ---> player-converter
+# ---> music-sync
 # Your real config carries a secret token - never commit it.
 config.yaml
 music/
