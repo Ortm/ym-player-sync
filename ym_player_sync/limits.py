@@ -25,6 +25,12 @@ def apply_limits(
         total = 0
         out: list = []
         for item, size in zip(kept, kept_sizes):
+            if size <= 0:
+                # Unknown size must not count as free, otherwise the cap
+                # never triggers. Keep only the first such track.
+                if not out:
+                    out.append(item)
+                break
             if total + size <= cap or not out:
                 out.append(item)
                 total += size

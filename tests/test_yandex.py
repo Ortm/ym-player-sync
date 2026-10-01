@@ -140,6 +140,20 @@ def test_pick_variant_unknown_codec_errors():
         src.pick_variant(_track(), "high")
 
 
+def test_pick_variant_normalizes_bps_bitrate():
+    payload = {"downloadInfo": {"codec": "mp3", "urls": ["http://a"], "bitrate": 320000}}
+    src, _ = _source_with({("GET", "/get-file-info"): payload})
+    assert src.pick_variant(_track(), "high").bitrate_kbps == 320
+
+
+def test_pick_variant_missing_bitrate_gets_default():
+    payload = {"downloadInfo": {"codec": "flac", "urls": ["http://a"]}}
+    src, _ = _source_with({("GET", "/get-file-info"): payload})
+    variant = src.pick_variant(_track(), "lossless")
+    assert variant.bitrate_kbps > 0
+    assert variant.estimated_bytes(180_000) > 0
+
+
 def test_pick_variant_unknown_quality_errors():
     src, _ = _source_with({})
     with pytest.raises(ValueError, match="unknown quality"):
@@ -148,7 +162,7 @@ def test_pick_variant_unknown_quality_errors():
 
 def test_variant_estimated_bytes():
     v = Variant(codec="mp3", bitrate_kbps=320, extension="mp3", urls=["http://x"])
-    assert v.estimated_bytes(180_000) == 320 * 180_000 // 8000  # 7.2 MB
+    assert v.estimated_bytes(180_000) == 320 * 180_000 // 8  # ~7.2 MB
 
 
 def test_connection_error_becomes_source_error():

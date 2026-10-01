@@ -11,7 +11,8 @@ from .audio import output_extension
 from .config import default_config_path, load_config
 from .limits import apply_limits
 from .models import DesiredTrack
-from .naming import render_filename
+from .naming import queue_width, render_filename
+from .progress import LiveLine
 from .sources import SourceError, detect_source, get_source
 from .sync import sync_cache, sync_player
 
@@ -78,7 +79,24 @@ def cmd_download(config, dry_run: bool) -> int:
     # pick variants + estimate sizes, enforcing the total-size cap
     candidates: list[DesiredTrack] = []
     denied = 0
-    for track in tracks:
+    est_total = 0
+    total_tracks = len(tracks)
+    vlive = LiveLine()
+
+    def _variant_progress(done: int) -> str:
+        bits = [f"{done}/{total_tracks} tracks"]
+        if config.max_tracks:
+            tpct = done / config.max_tracks * 100 if config.max_tracks else 0
+            bits[0] += f" (cap {config.max_tracks}, {tpct:.0f}%)"
+        if config.max_total_mb:
+            cap = config.max_total_mb * 1_048_576
+            mpct = est_total / cap * 100 if cap else 0
+            bits.append(f"~{est_total / 1_048_576:.0f}/{config.max_total_mb:.0f} MB ({mpct:.0f}%)")
+        else:
+            bits.append(f"~{est_total / 1_048_576:.0f} MB")
+        return " | ".join(bits)
+
+    for n, track in enumerate(tracks, 1):
         variant = None
         last_error: SourceError | None = None
         tried: list[str] = []
@@ -99,17 +117,22 @@ def cmd_download(config, dry_run: bool) -> int:
         if variant is None:
             if last_error is not None and "denied" in str(last_error):
                 denied += 1
-            print(f"  [skip] {track.name}: {last_error}")
+            vlive.sticky(f"  [skip] {track.name}: {last_error}")
             continue
         if len(tried) > 1:
-            print(f"  [downgrade] {track.name}: {tried[0]} -> {tried[-1]}")
+            vlive.sticky(f"  [downgrade] {track.name}: {tried[0]} -> {tried[-1]}")
+        est = variant.estimated_bytes(track.duration_ms)
+        est_total += est
         candidates.append(
             DesiredTrack(
                 track=track,
                 variant=variant,
-                estimated_bytes=variant.estimated_bytes(track.duration_ms),
+                estimated_bytes=est,
             )
         )
+        vlive.update(f"  variants: {_variant_progress(n)} — {track.name}",
+                     force=(n == total_tracks or n % 25 == 0))
+    vlive.close()
 
     if denied and not candidates:
         print(
@@ -126,10 +149,19 @@ def cmd_download(config, dry_run: bool) -> int:
         max_tracks=None,  # already applied to keys above
         max_total_mb=config.max_total_mb,
     )
-    if config.max_total_mb and len(kept) < len(candidates):
-        print(f"  size cap: keeping {len(kept)} of {len(candidates)} tracks")
+    if config.max_total_mb:
+        est_mb = sum(c.estimated_bytes for c in candidates) / 1_048_576
+        kept_mb = sum(c.estimated_bytes for c in kept) / 1_048_576
+        if len(kept) < len(candidates):
+            print(
+                f"  size cap: keeping {len(kept)} of {len(candidates)} tracks "
+                f"(~{kept_mb:.0f} of ~{est_mb:.0f} MB estimated, cap {config.max_total_mb:.0f} MB)"
+            )
+        else:
+            print(f"  size estimate: ~{est_mb:.0f} MB for {len(candidates)} tracks")
 
-    width = max(3, len(str(len(kept))))
+    # Stable width from the full queue, not the kept count (see queue_width).
+    width = queue_width(len(tracks), config.max_tracks)
     for i, d in enumerate(kept, 1):
         d.filename = render_filename(
             config.filename_template, i, width, d.track,
@@ -140,18 +172,42 @@ def cmd_download(config, dry_run: bool) -> int:
         return source.download(d.track, d.variant, dest)
 
     print(f"\n-- cache: {config.output_dir}")
+    cap_bytes = (
+        int(config.max_total_mb * 1_048_576) if config.max_total_mb else None
+    )
+    if config.max_tracks or cap_bytes:
+        parts = []
+        if config.max_tracks:
+            parts.append(f"tracks 0/{config.max_tracks} (0%)")
+        if cap_bytes:
+            parts.append(f"size 0.0/{config.max_total_mb:.0f} MB (0.0%)")
+        print(f"  limits: {' | '.join(parts)} — {len(kept)} queued")
     counts = sync_cache(
         config.output_dir, kept, download,
         dry_run=dry_run, workers=config.workers,
         adopt_from=[config.player_dir],
+        max_total_bytes=cap_bytes,
+        max_tracks=config.max_tracks,
     )
 
     mode = "(dry run) " if dry_run else ""
+    limits_fill = ""
+    if config.max_tracks or cap_bytes:
+        bits = []
+        if config.max_tracks:
+            tpct = counts.total_tracks / config.max_tracks * 100 if config.max_tracks else 0
+            bits.append(f"{counts.total_tracks}/{config.max_tracks} tracks ({tpct:.0f}%)")
+        if cap_bytes:
+            mpct = counts.total_bytes / cap_bytes * 100 if cap_bytes else 0
+            bits.append(
+                f"{counts.total_bytes / 1_048_576:.1f}/{config.max_total_mb:.0f} MB ({mpct:.1f}%)"
+            )
+        limits_fill = f" Limits: {' | '.join(bits)}."
     print(
         f"\nDone {mode}— {counts.downloaded} downloaded, {counts.matched} renamed, "
         f"{counts.adopted} recovered from player, {counts.renamed} renumbered, "
         f"{counts.skipped} up to date, {counts.failed} failed, "
-        f"{counts.removed_cache} removed from cache."
+        f"{counts.removed_cache} removed from cache.{limits_fill}"
     )
     return 0
 

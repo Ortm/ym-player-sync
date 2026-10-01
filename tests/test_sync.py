@@ -389,9 +389,9 @@ def test_sync_cache_size_limit_deletes_over_budget_tracks(tmp_path):
     cache = tmp_path / "music"
     full = [_desired(1), _desired(2), _desired(3)]
     sync_cache(cache, full, _fake_download(), dry_run=False)
-    # budget fits only the first track (each track is 7200 bytes estimated)
+    # budget fits only the first track (each ~7.2 MB estimated at 320 kbps)
     kept = apply_limits(
-        full, [c.estimated_bytes for c in full], None, 8000 / 1_048_576
+        full, [c.estimated_bytes for c in full], None, 8.0
     )
     assert len(kept) == 1
     counts = sync_cache(cache, kept, _fake_download(), dry_run=False)
@@ -415,3 +415,115 @@ def test_sync_player_limit_run_deletes_surplus_from_player(tmp_path):
         "001-Artist - Song 1.mp3",
         "002-Artist - Song 2.mp3",
     ]
+
+
+def test_estimated_bytes_realistic_scale():
+    # 320 kbps * 3 min must be megabytes, not kilobytes (was // 8000).
+    v = Variant(codec="mp3", bitrate_kbps=320, extension="mp3", urls=["http://x"])
+    assert v.estimated_bytes(180_000) == 7_200_000
+
+
+def test_apply_limits_unknown_size_not_free():
+    assert apply_limits(["a", "b", "c"], [0, 0, 0], None, 6000) == ["a"]
+
+
+def test_sync_cache_hard_cap_stops_actual_overrun(tmp_path):
+    from ym_player_sync.sync.cache import sync_cache as sc
+
+    cache = tmp_path / "music"
+    items = [_desired(1), _desired(2), _desired(3)]
+    for d in items:
+        d.estimated_bytes = 100  # estimates claim everything fits...
+
+    def big_download(desired, dest):
+        dest.write_bytes(b"x" * 5_000_000)  # ...but actual files are 5 MB
+        return 5_000_000
+
+    counts = sc(cache, items, big_download, dry_run=False, max_total_bytes=6_000_000)
+    # 5 MB + 5 MB blows past the 6 MB cap: the overrunning download is kept,
+    # but the third track must never start.
+    assert counts.downloaded == 2
+    assert len([p for p in cache.iterdir() if p.suffix == ".mp3"]) == 2
+
+
+def test_sync_cache_hard_cap_counts_reused_files(tmp_path):
+    from ym_player_sync.sync.cache import sync_cache as sc
+
+    cache = tmp_path / "music"
+    items = [_desired(1), _desired(2)]
+    sync_cache(cache, items, _fake_download(b"x" * 5_000_000), dry_run=False)
+    # cache now holds 2 x 5 MB; a 6 MB cap run must prune the second
+    counts = sc(cache, items, _fake_download(), dry_run=False, max_total_bytes=6_000_000)
+    assert counts.skipped == 1
+    assert counts.removed_cache == 1
+    assert (cache / items[0].filename).is_file()
+    assert not (cache / items[1].filename).exists()
+
+
+def _sized(i, size):
+    d = _desired(i)
+    d.estimated_bytes = size
+    return d
+
+
+def test_sync_cache_cap_prefers_new_downloads_over_old_tail(tmp_path):
+    # Newest-first budget: a new track at the top downloads before an
+    # older cached track further down can eat the cap.
+    from ym_player_sync.sync.cache import sync_cache as sc
+
+    cache = tmp_path / "music"
+    old = [_sized(99, 5_000_000)]
+    sync_cache(cache, old, _fake_download(b"x" * 5_000_000), dry_run=False)
+
+    new = _sized(1, 5_000_000)
+    # desired order: new track first, old cached track second
+    second = _sized(99, 5_000_000)
+    second.filename = old[0].filename
+    second.track = old[0].track
+    second.variant = old[0].variant
+
+    def dl(desired, dest):
+        dest.write_bytes(b"y" * 5_000_000)
+        return 5_000_000
+
+    counts = sc(cache, [new, second], dl, dry_run=False, max_total_bytes=6_000_000)
+    assert counts.downloaded == 1
+    assert (cache / new.filename).is_file()
+    assert not (cache / old[0].filename).exists()  # tail pruned, not the new track
+
+
+def test_queue_width_stable_against_size_cap():
+    from ym_player_sync.naming import queue_width
+
+    assert queue_width(1419) == 4
+    assert queue_width(376) == 3
+    # width follows the full queue (or max_tracks), never the kept count
+    assert queue_width(1419, None) == 4
+    assert queue_width(5, 1500) == 4
+
+
+def test_live_line_refreshes_single_line():
+    import io
+
+    from ym_player_sync.progress import LiveLine, fit_width
+
+    assert fit_width("abcdef", 4) == "abc"
+    assert fit_width("日本語テスト", 6) == "日本"
+
+    buf = io.StringIO()
+    live = LiveLine(stream=buf, enabled=True)
+    live.update("hello")
+    live.update("hi")
+    assert "\n" not in buf.getvalue()
+    live.sticky("problem!")
+    live.close()
+    out = buf.getvalue()
+    assert "problem!" in out and out.endswith("\n")
+
+    # piped output: silent except forced heartbeats
+    buf2 = io.StringIO()
+    quiet = LiveLine(stream=buf2, enabled=False)
+    quiet.update("invisible")
+    assert buf2.getvalue() == ""
+    quiet.update("heartbeat", force=True)
+    assert "heartbeat" in buf2.getvalue()

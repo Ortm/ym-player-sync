@@ -31,8 +31,12 @@ class Variant:
     decrypt_key: str | None = None
 
     def estimated_bytes(self, duration_ms: int) -> int:
-        # bitrate(kbit/s) * duration(ms) / 8000 = bytes
-        return self.bitrate_kbps * max(duration_ms, 0) // 8000
+        # bitrate(kbit/s) * duration(ms) / 8 = bytes:
+        #   kbit/s * 1000 bit/kbit * duration_ms/1000 s / 8 bit/byte
+        #   = bitrate_kbps * duration_ms / 8.
+        # A zero/unknown bitrate estimates as 0 — callers must not treat
+        # that as "free" (see pick_variant defaults + runtime budget stop).
+        return self.bitrate_kbps * max(duration_ms, 0) // 8
 
 
 @dataclass

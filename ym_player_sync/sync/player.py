@@ -6,6 +6,7 @@ import shutil
 from pathlib import Path
 
 from .cache import AUDIO_EXTENSIONS, SyncCounts
+from ..progress import LiveLine
 
 
 def sync_player(output_dir: Path, player_dir: Path, dry_run: bool = False) -> SyncCounts:
@@ -25,6 +26,7 @@ def sync_player(output_dir: Path, player_dir: Path, dry_run: bool = False) -> Sy
         for f in output_dir.iterdir()
         if f.is_file() and f.suffix.lower() in AUDIO_EXTENSIONS
     }
+    live = LiveLine()
     for f in sorted(player_dir.iterdir()):
         if (
             f.is_file()
@@ -34,19 +36,25 @@ def sync_player(output_dir: Path, player_dir: Path, dry_run: bool = False) -> Sy
             if not dry_run:
                 f.unlink()
             counts.removed_player += 1
-            print(f"  [del-player] {f.name} (no longer in playlist)")
-    for name, src in sorted(wanted.items()):
+            live.sticky(f"  [del-player] {f.name} (no longer in playlist)")
+    names = sorted(wanted.items())
+    total = len(names)
+    for i, (name, src) in enumerate(names, 1):
         dst = player_dir / name
         if dst.is_file() and dst.stat().st_size == src.stat().st_size:
             counts.skipped += 1
+            live.update(f"  [sync {i}/{total}] — {name}",
+                        force=(i == total or i % 25 == 0))
             continue
         try:
             if not dry_run:
                 shutil.copy2(src, dst)
         except OSError as e:
             counts.failed += 1
-            print(f"  [fail-player] {name} ({e})")
+            live.sticky(f"  [fail-player] {name} ({e})")
             continue
         counts.copied += 1
-        print(f"  [copy] {name}")
+        live.update(f"  [sync {i}/{total}] — {name}",
+                    force=(i == total or i % 25 == 0))
+    live.close()
     return counts

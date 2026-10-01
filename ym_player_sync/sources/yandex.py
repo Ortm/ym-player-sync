@@ -333,9 +333,24 @@ class YandexSource:
         urls = info.get("urls") or []
         if not urls:
             raise SourceError("get-file-info returned no download URLs")
+        raw_bitrate = info.get("bitrate") or 0
+        try:
+            raw_bitrate = int(raw_bitrate)
+        except (TypeError, ValueError):
+            raw_bitrate = 0
+        if raw_bitrate > 10_000:
+            # Some responses report bits/s (e.g. 320000) instead of
+            # kbit/s (320) — normalize so estimates stay in range.
+            raw_bitrate //= 1000
+        if raw_bitrate <= 0:
+            # Unknown bitrate must not estimate as 0 bytes, otherwise a
+            # max_total_mb cap treats the track as free and never stops.
+            # Fall back to a conservative per-codec default (over-estimate
+            # stops early rather than over-downloading).
+            raw_bitrate = 900 if codec.startswith("flac") else 320
         return Variant(
             codec=codec,
-            bitrate_kbps=info.get("bitrate") or 0,
+            bitrate_kbps=raw_bitrate,
             extension=extension,
             urls=list(urls),
             decrypt_key=info.get("key"),

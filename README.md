@@ -146,6 +146,7 @@ ym_player_sync/
   models.py         # Track, Variant, PlaylistInfo, DesiredTrack
   naming.py         # player-safe filenames + numbering template
   limits.py         # max_tracks / max_total_mb truncation
+  progress.py       # single-line refreshing progress (TTY) / heartbeat (pipes)
   matching.py       # find a track saved under a different filename
   audio.py          # m4a -> FLAC post-processing (imageio-ffmpeg/ffmpeg)
   sources/

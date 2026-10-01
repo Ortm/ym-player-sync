@@ -34,3 +34,14 @@ def render_filename(
         artists=sanitize_name(", ".join(track.artists)),
         ext=ext,
     )
+
+
+def queue_width(total_tracks: int, max_tracks: int | None = None) -> int:
+    """Zero-pad width for ``{position}`` numbering.
+
+    Derived from the full queue size *before* the size cap — never from
+    the kept count — so estimate jitter around a power of 10 can't flip
+    the width and rename the whole library every other run.
+    """
+    base = max_tracks if max_tracks else total_tracks
+    return max(3, len(str(max(base, 0))))
