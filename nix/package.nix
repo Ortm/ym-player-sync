@@ -23,6 +23,7 @@ python3Packages.buildPythonApplication {
 
   dependencies = with python3Packages; [
     imageio-ffmpeg
+    mutagen
     pycryptodome
     pyyaml
     requests

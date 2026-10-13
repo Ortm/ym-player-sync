@@ -15,6 +15,7 @@ from .naming import queue_width, render_filename
 from .progress import LiveLine
 from .sources import SourceError, detect_source, get_source
 from .sync import sync_cache, sync_player
+from .tags import Tagger
 
 
 def _source_for(config):
@@ -25,6 +26,15 @@ def _source_for(config):
     )
     source.set_token(config.token)
     return source
+
+
+def _tagger(config, source) -> Tagger | None:
+    """Tag writer for the download stage (None when tagging is off)."""
+    if not config.tags:
+        return None
+    return Tagger(
+        cover_provider=source.fetch_cover if config.embed_cover else None
+    )
 
 
 def cmd_info(config) -> int:
@@ -188,6 +198,7 @@ def cmd_download(config, dry_run: bool) -> int:
         adopt_from=[config.player_dir],
         max_total_bytes=cap_bytes,
         max_tracks=config.max_tracks,
+        tagger=_tagger(config, source),
     )
 
     mode = "(dry run) " if dry_run else ""
@@ -206,7 +217,8 @@ def cmd_download(config, dry_run: bool) -> int:
     print(
         f"\nDone {mode}— {counts.downloaded} downloaded, {counts.matched} renamed, "
         f"{counts.adopted} recovered from player, {counts.renamed} renumbered, "
-        f"{counts.skipped} up to date, {counts.failed} failed, "
+        f"{counts.tagged} tagged, {counts.skipped} up to date, "
+        f"{counts.failed} failed, {counts.tag_failed} tag failures, "
         f"{counts.removed_cache} removed from cache.{limits_fill}"
     )
     return 0

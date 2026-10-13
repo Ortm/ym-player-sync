@@ -165,6 +165,88 @@ def test_variant_estimated_bytes():
     assert v.estimated_bytes(180_000) == 320 * 180_000 // 8  # ~7.2 MB
 
 
+# -- album metadata: what the tags are written from ------------------------
+
+
+ALBUM_ITEM = {
+    "id": 123,
+    "title": "Song",
+    "durationMs": 180_000,
+    "available": True,
+    "artists": [{"name": "Artist"}, {"name": "Guest"}],
+    "albums": [
+        {
+            "id": 456,
+            "title": "Album",
+            "year": 1988,
+            "artists": [{"name": "Album Artist"}],
+            "trackPosition": {"volume": 2, "index": 3},
+            "coverUri": "avatars.yandex.net/get-music-content/1/%%",
+        }
+    ],
+}
+
+
+def test_fetch_tracks_reads_album_metadata():
+    src, _ = _source_with({("POST", "/tracks"): [ALBUM_ITEM]})
+    track = src.fetch_tracks(["123:456"])[0]
+    assert track.key == "123:456"
+    assert track.artists == ["Artist", "Guest"]
+    assert track.album == "Album"
+    assert track.album_artists == ["Album Artist"]
+    assert track.year == 1988
+    assert (track.track_number, track.disc_number) == (3, 2)
+
+
+def test_cover_url_fills_in_the_size():
+    track = YandexSource._track(ALBUM_ITEM)
+    assert track.cover_url() == "https://avatars.yandex.net/get-music-content/1/400x400"
+    assert track.cover_url("1000x1000").endswith("/1000x1000")
+
+
+def test_fetch_tracks_survives_a_track_without_an_album():
+    # playlists also carry compilation entries with no album attached
+    src, _ = _source_with({("POST", "/tracks"): [{"id": 9, "title": "Song"}]})
+    track = src.fetch_tracks(["9:0"])[0]
+    assert track.key == "9:0" and track.title == "Song"
+    assert track.album == "" and track.year is None and track.track_number is None
+    assert track.cover_url() == ""
+
+
+class _FakeCoverResponse:
+    content = b"jpeg-bytes"
+
+    def raise_for_status(self):
+        pass
+
+
+def test_fetch_cover_downloads_the_album_art():
+    src, _ = _source_with({})
+    seen = []
+
+    def fake_get(url, **kwargs):
+        seen.append(url)
+        return _FakeCoverResponse()
+
+    src.session.get = fake_get  # type: ignore[method-assign]
+    track = YandexSource._track(ALBUM_ITEM)
+    assert src.fetch_cover(track) == b"jpeg-bytes"
+    assert seen == ["https://avatars.yandex.net/get-music-content/1/400x400"]
+
+
+def test_fetch_cover_is_none_without_art_or_on_failure():
+    import requests
+
+    src, _ = _source_with({})
+    assert src.fetch_cover(_track()) is None  # no coverUri at all
+
+    def down(url, **kwargs):
+        raise requests.ConnectionError("cdn down")
+
+    src.session.get = down  # type: ignore[method-assign]
+    assert src.fetch_cover(YandexSource._track(ALBUM_ITEM)) is None
+
+
 def test_connection_error_becomes_source_error():
     import requests
 

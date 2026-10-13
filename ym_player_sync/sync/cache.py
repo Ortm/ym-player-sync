@@ -19,6 +19,7 @@ from typing import Callable, Iterable
 from ..matching import find_by_name
 from ..models import DesiredTrack
 from ..progress import LiveLine
+from ..tags import TagError, Tagger
 
 AUDIO_EXTENSIONS = (".flac", ".mp3", ".m4a")
 STATE_FILENAME = ".ym-player-sync-state.json"
@@ -30,6 +31,8 @@ class SyncCounts:
     renamed: int = 0
     matched: int = 0  # renamed from a different filename instead of re-downloading
     adopted: int = 0  # recovered from the player dir into the cache
+    tagged: int = 0  # files that got their metadata written
+    tag_failed: int = 0
     removed_cache: int = 0
     copied: int = 0
     removed_player: int = 0
@@ -105,6 +108,7 @@ def sync_cache(
     adopt_from: Iterable[Path] = (),
     max_total_bytes: int | None = None,
     max_tracks: int | None = None,
+    tagger: Tagger | None = None,
 ) -> SyncCounts:
     """Mirror desired tracks into output_dir. ``download`` writes bytes
     for a DesiredTrack to the given path and returns bytes written.
@@ -116,7 +120,9 @@ def sync_cache(
     and pruned. It backs the estimate-based ``max_total_mb`` pre-filter
     for cases where estimates are off (VBR, transcoded m4a->flac).
     ``max_tracks`` is display-only here (truncation happens upstream);
-    it feeds the tracks-limit progress readout."""
+    it feeds the tracks-limit progress readout.
+    ``tagger`` writes track metadata (artist/title/album/…) into every
+    file that does not carry it yet."""
     counts = SyncCounts()
     output_dir.mkdir(parents=True, exist_ok=True)
     state = _load_state(output_dir)
@@ -129,6 +135,10 @@ def sync_cache(
     new_saved: dict[str, dict] = {}
     pending: list[tuple[DesiredTrack, Path]] = []
     claimed: set[Path] = set()  # files taken by another track this run
+    # where a track's audio still sits (its old name, or the player) when it
+    # has not been moved into place — only a dry run needs this, to report
+    # what tagging would do to files it is not moving
+    old_file: dict[str, Path] = {}
 
     budget_bytes = 0
     budget_count = 0
@@ -221,6 +231,7 @@ def sync_cache(
             if not dry_run:
                 os.replace(old, dest)
             claimed.add(old)
+            old_file[d.track.key] = old
             counts.renamed += 1
             new_saved[d.track.key] = _state_entry(d)
             budget_bytes += size
@@ -244,6 +255,7 @@ def sync_cache(
             new_saved[d.track.key] = _state_entry(d)
             budget_bytes += size
             budget_count += 1
+            old_file[d.track.key] = src
             if where == output_dir:
                 counts.matched += 1
             else:
@@ -302,6 +314,30 @@ def sync_cache(
             new_saved[d.track.key] = _state_entry(d)
             live.update(f"  [{seq}/{total_pending}] {_progress()} — {d.filename}",
                         force=(seq == total_pending or seq % 25 == 0))
+
+    # Every managed file gets the track's metadata written into it: a fresh
+    # download carries no tags at all, and a file renamed, adopted or left
+    # over from a cache made before tagging existed carries none either.
+    # Reading is cheap, so the check runs over the whole queue and only the
+    # files that need it are rewritten (which changes their size, so the
+    # player copy follows on the next `sync`).
+    if tagger is not None:
+        for d in desired:
+            if d.filename not in wanted_names:
+                continue  # dropped by the budget cap: pruned below anyway
+            path = output_dir / d.filename
+            if not path.is_file():
+                # dry run: the file is still under its old name / on the player
+                path = old_file.get(d.track.key, path)
+            if not path.is_file():
+                continue  # dry run of a fresh download, or the track failed
+            try:
+                if tagger.apply(path, d.track, dry_run=dry_run):
+                    counts.tagged += 1
+                    live.sticky(f"  [tag] {d.filename}")
+            except (TagError, OSError) as e:
+                counts.tag_failed += 1
+                live.sticky(f"  [tag-fail] {d.filename} ({e})")
 
     # Delete every managed file that is not part of the current queue —
     # this is what enforces the track-count / total-size limits. Leftover

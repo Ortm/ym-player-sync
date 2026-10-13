@@ -1,9 +1,13 @@
+import shutil
 from pathlib import Path
+
+import mutagen
 
 from ym_player_sync.limits import apply_limits
 from ym_player_sync.models import DesiredTrack, Track, Variant
 from ym_player_sync.naming import render_filename, sanitize_name
 from ym_player_sync.sync import sync_cache, sync_player
+from ym_player_sync.tags import Tagger
 
 
 def _meta(i, title="Song", artists=("Artist",)):
@@ -527,3 +531,134 @@ def test_live_line_refreshes_single_line():
     assert buf2.getvalue() == ""
     quiet.update("heartbeat", force=True)
     assert "heartbeat" in buf2.getvalue()
+# -- tags: every cached file carries the track's metadata ------------------
+
+
+def _real_download(template: Path):
+    """A download callable that drops a real, tagless file into the cache."""
+
+    def download(desired, dest):
+        shutil.copy2(template, dest)
+        return dest.stat().st_size
+
+    return download
+
+
+def _tags(path):
+    """Tags as a player reads them (mutagen's canonical names)."""
+    audio = mutagen.File(path, easy=True)
+    assert audio is not None and audio.tags is not None
+    return audio.tags
+
+
+def test_sync_cache_tags_downloaded_files(tmp_path, audio_templates):
+    cache = tmp_path / "music"
+    items = [_desired(1), _desired(2)]
+    download = _real_download(audio_templates["mp3"])
+
+    counts = sync_cache(cache, items, download, dry_run=False, tagger=Tagger())
+    assert counts.downloaded == 2 and counts.tagged == 2 and counts.tag_failed == 0
+    tags = _tags(cache / items[0].filename)
+    assert tags["title"] == ["Song 1"] and tags["artist"] == ["Artist"]
+
+    # tagging a second time rewrites nothing — a rewrite would mean every
+    # file changes size and the player gets the whole library again
+    counts = sync_cache(cache, items, download, dry_run=False, tagger=Tagger())
+    assert counts.tagged == 0 and counts.skipped == 2
+
+
+def test_sync_cache_without_a_tagger_writes_no_tags(tmp_path, audio_templates):
+    cache = tmp_path / "music"
+    counts = sync_cache(
+        cache, [_desired(1)], _real_download(audio_templates["mp3"]), dry_run=False
+    )
+    assert counts.tagged == 0
+    assert "title" not in _tags(cache / _desired(1).filename)
+
+
+def test_sync_cache_dry_run_reports_tagging_without_tagging(
+    tmp_path, audio_templates
+):
+    cache = tmp_path / "music"
+    cache.mkdir()
+    (cache / _desired(1).filename).write_bytes(audio_templates["mp3"].read_bytes())
+
+    counts = sync_cache(
+        cache, [_desired(1)], _fail_download, dry_run=True, tagger=Tagger()
+    )
+    assert counts.tagged == 1  # reported ...
+    assert "title" not in _tags(cache / _desired(1).filename)  # ... not done
+
+
+def test_sync_cache_dry_run_tags_the_file_under_its_old_name(
+    tmp_path, audio_templates
+):
+    cache = tmp_path / "music"
+    cache.mkdir()
+    (cache / "001-Artist - Song 1.mp3").write_bytes(
+        audio_templates["mp3"].read_bytes()
+    )
+
+    counts = sync_cache(
+        cache,
+        [_desired(1, "001-Song 1 - Artist.mp3")],
+        _fail_download,
+        dry_run=True,
+        tagger=Tagger(),
+    )
+    assert counts.matched == 1 and counts.tagged == 1
+
+
+def test_sync_cache_tags_files_adopted_from_the_player(tmp_path, audio_templates):
+    cache = tmp_path / "music"
+    player = tmp_path / "player"
+    player.mkdir()
+    (player / "007-Artist - Song 1.mp3").write_bytes(
+        audio_templates["mp3"].read_bytes()
+    )
+
+    counts = sync_cache(
+        cache,
+        [_desired(1, "001-Song 1 - Artist.mp3")],
+        _fail_download,
+        dry_run=False,
+        adopt_from=[player],
+        tagger=Tagger(),
+    )
+    assert counts.adopted == 1 and counts.tagged == 1
+    assert _tags(cache / "001-Song 1 - Artist.mp3")["title"] == ["Song 1"]
+    # the download stage leaves the player alone; the mirror stage replaces
+    # the copy there with the tagged one (different size)
+    assert "title" not in _tags(player / "007-Artist - Song 1.mp3")
+
+
+def test_sync_cache_counts_files_it_cannot_tag_and_carries_on(tmp_path):
+    cache = tmp_path / "music"
+    # the fake download writes junk: not audio, so it cannot carry tags
+    counts = sync_cache(
+        cache, [_desired(1), _desired(2)], _fake_download(), dry_run=False,
+        tagger=Tagger(),
+    )
+    assert counts.downloaded == 2 and counts.tag_failed == 2 and counts.tagged == 0
+    assert (cache / _desired(1).filename).is_file()  # nothing was lost
+
+
+def test_sync_cache_does_not_tag_files_the_cap_dropped(tmp_path, audio_templates):
+    """A track the budget cap is about to prune is not tagged first: the
+    delete sweep would throw that work away in the same run."""
+    cache = tmp_path / "music"
+    items = [_desired(1), _desired(2)]
+    download = _real_download(audio_templates["mp3"])
+    sync_cache(cache, items, download, dry_run=False)
+    size = (cache / items[0].filename).stat().st_size
+
+    counts = sync_cache(
+        cache, items, download, dry_run=False, tagger=Tagger(),
+        # room for the first file only — the second is dropped by the cap
+        max_total_bytes=size,
+    )
+    assert counts.removed_cache == 1
+    assert not (cache / items[1].filename).exists()
+    # only the file that stayed got its tags; the pruned one was left alone
+    assert counts.tagged == 1 and counts.tag_failed == 0
+    assert _tags(cache / items[0].filename)["title"] == ["Song 1"]

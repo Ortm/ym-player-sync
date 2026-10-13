@@ -57,6 +57,14 @@ class PlaylistSource(Protocol):
         """Download the track bytes to dest. Returns bytes written."""
         ...
 
+    def fetch_cover(self, track: Track) -> bytes | None:
+        """Album cover bytes for a track, or None when it has none.
+
+        Used to embed artwork into the downloaded file; best-effort, and
+        never fatal — a source without covers just returns None.
+        """
+        ...
+
 
 AVAILABLE_SOURCES = ("yandex",)
 """Names usable as the config `source` value / get_source() argument."""

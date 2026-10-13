@@ -7,6 +7,9 @@ Mirror a Yandex Music playlist onto a USB music player: `001-Title - Artist.flac
 
 - Two stages: `download` fills a local cache from the API, `sync` copies it onto the
   mounted player — so the player only has to be plugged in for the second half.
+- Files are tagged as they land: artist, title, album, album artist, year and track
+  number are written into every download, plus the album cover — so mpd/rmpc (and the
+  player itself) show what is playing instead of a filename.
 - Renames instead of re-downloading: a file already on disk under an older naming
   scheme (artist-first, no position number, hand-copied) is matched and renamed.
 - Exact mirror: tracks dropped from the playlist — or cut by `max_tracks` /
@@ -98,6 +101,8 @@ anything the module does not model can be passed through `settings`.
 | `token` | OAuth token (`${YM_TOKEN}` supported; `YM_TOKEN` env var is the fallback) |
 | `token_file` | Path of a file holding the token — either the bare token or an `YM_TOKEN=...` line (systemd `EnvironmentFile` / agenix / sops-nix style). Read at startup, so secrets stay out of configs and the Nix store; used when `token`/`YM_TOKEN` are empty |
 | `quality` | Download tier, requested from the API per track — files are kept **as downloaded, no transcoding**, except `.m4a`, which is converted to FLAC (many players can't play MP4 containers; for FLAC-in-MP4 sources this is lossless): `lossless` → best lossless (FLAC), `high` → 320 kbps MP3, `low` → smallest variant (takes least space); exact codec follows the server response |
+| `tags` | Write the track's metadata (artist, title, album, album artist, year, track number) into every file in the cache — what a player displays comes from tags, not from the filename. Files that already carry them are not rewritten (`false` = leave files exactly as downloaded) |
+| `embed_cover` | Embed the album cover image into each file (from the source's cover CDN; needs `tags`). Best-effort: if it cannot be fetched the text tags are still written and the next run retries |
 | `max_tracks` | Only the first N playlist tracks (`null` = all); everything beyond N is deleted from cache and player |
 | `workers` | Parallel downloads on the `download` stage, `1` = sequential (default `4`) |
 | `max_total_mb` | Cap on estimated total download size; keeps every track that fits, always at least the first (`null` = no cap); tracks over budget are deleted from cache and player |
@@ -126,6 +131,10 @@ copy needs no flags).
    - a file that exists only on the player is **recovered** into the cache
      (`[adopt]`) instead of being downloaded again;
    - position changes become cheap renames (`[renumber]`);
+   - every file that is missing its metadata gets it written in (`[tag]`):
+     downloads arrive untagged, and an adopted or legacy file may be too.
+     Reading is cheap, so the whole queue is checked and only files that
+     need it are rewritten — a re-run writes nothing;
    - everything else managed is deleted — so lowering `max_tracks` /
      `max_total_mb` prunes the tracks that no longer fit the queue, and
      leftover `.part` files from interrupted downloads are cleaned up.
@@ -149,6 +158,7 @@ ym_player_sync/
   progress.py       # single-line refreshing progress (TTY) / heartbeat (pipes)
   matching.py       # find a track saved under a different filename
   audio.py          # m4a -> FLAC post-processing (imageio-ffmpeg/ffmpeg)
+  tags.py           # artist/title/album/… + cover into the files (mutagen)
   sources/
     __init__.py     # PlaylistSource protocol, registry, detect_source()
     yandex.py       # Yandex Music implementation
@@ -167,15 +177,15 @@ nix/
 
 1. Subclass the `PlaylistSource` protocol in `sources/<name>.py`
    (`set_token`, `account_login`, `fetch_playlist`, `fetch_tracks`,
-   `pick_variant`, `download`).
+   `pick_variant`, `download`, `fetch_cover`).
 2. Register it in `AVAILABLE_SOURCES` / `get_source()` and extend
    `detect_source()` if the source is guessable from the URL.
-3. Add tests. Nothing else changes — CLI, limits, naming, and both sync
+3. Add tests. Nothing else changes — CLI, limits, naming, tagging, and both sync
    stages work against the protocol, not Yandex.
 
 ## Notes
 
-- Tests: `uv run pytest` (90 tests, network-free). `nix flake check` builds the
+- Tests: `uv run pytest` (125 tests, network-free). `nix flake check` builds the
   package, runs the same suite in the sandbox and smoke-tests the CLI; CI runs both
   on every push.
 - License: MIT (see `LICENSE`).

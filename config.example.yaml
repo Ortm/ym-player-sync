@@ -19,6 +19,13 @@ quality: lossless
 # Only "yandex" exists for now - see README for adding new sources.
 source: null
 
+# Write the track's metadata (artist, title, album, album artist, year,
+# track number) into each downloaded file, so players show what is
+# playing instead of a filename, and embed the album cover image into it.
+# Existing tags on a file are kept; a re-run is a no-op.
+tags: true
+embed_cover: true
+
 # Limits (null = no limit). At least one of them answers "fit on my player".
 max_tracks: null
 max_total_mb: null

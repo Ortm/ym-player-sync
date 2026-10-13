@@ -18,6 +18,8 @@ let
       token_file = cfg.tokenFile;
       quality = cfg.quality;
       source = cfg.source;
+      tags = cfg.tags;
+      embed_cover = cfg.embedCover;
       max_tracks = cfg.maxTracks;
       max_total_mb = cfg.maxTotalMb;
       workers = cfg.workers;
@@ -81,6 +83,22 @@ in
       type = lib.types.nullOr (lib.types.enum [ "yandex" ]);
       default = null;
       description = "Music source. Null auto-detects from the playlist URL.";
+    };
+
+    tags = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Write the track's metadata (artist, title, album, album artist,
+        year, track number) into every downloaded file, so players show
+        what is playing instead of a filename.
+      '';
+    };
+
+    embedCover = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Embed the album cover into each downloaded file (needs `tags`).";
     };
 
     maxTracks = lib.mkOption {

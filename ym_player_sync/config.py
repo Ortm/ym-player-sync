@@ -51,6 +51,16 @@ def _expand_env(value: Any) -> Any:
     return value
 
 
+def _bool_option(raw: dict[str, Any], key: str, default: bool) -> bool:
+    """Read a yes/no option, refusing anything that is not a YAML boolean."""
+    value = raw.get(key, default)
+    if not isinstance(value, bool):
+        raise ValueError(
+            f"config: '{key}' must be true or false, got {value!r}"
+        )
+    return value
+
+
 @dataclass
 class Config:
     playlist_url: str
@@ -63,6 +73,8 @@ class Config:
     filename_template: str
     source: str | None  # None = auto-detect from playlist_url
     workers: int = 4  # parallel downloads on the download stage
+    tags: bool = True  # write track metadata into downloaded files
+    embed_cover: bool = True  # ... including the album cover
     token_file: Path | None = None  # where `token` was read from, if any
 
 
@@ -171,6 +183,9 @@ def load_config(path: str | Path) -> Config:
     if workers < 1:
         raise ValueError("config: 'workers' must be >= 1")
 
+    tags = _bool_option(raw, "tags", True)
+    embed_cover = _bool_option(raw, "embed_cover", True)
+
     return Config(
         playlist_url=playlist_url,
         token=token,
@@ -182,5 +197,7 @@ def load_config(path: str | Path) -> Config:
         filename_template=template,
         source=source,
         workers=workers,
+        tags=tags,
+        embed_cover=embed_cover,
         token_file=token_path,
     )

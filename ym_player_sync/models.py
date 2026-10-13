@@ -11,11 +11,29 @@ class Track:
     title: str
     artists: list[str] = field(default_factory=list)
     duration_ms: int = 0
+    # album metadata — written into the downloaded file's tags
+    album: str = ""
+    album_artists: list[str] = field(default_factory=list)
+    year: int | None = None
+    track_number: int | None = None
+    disc_number: int | None = None
+    cover_uri: str = ""  # template with a "%%" size placeholder
 
     @property
     def name(self) -> str:
         artist = ", ".join(self.artists)
         return f"{self.title} - {artist}" if artist else self.title
+
+    def cover_url(self, size: str = "400x400") -> str:
+        """Album cover URL at the given pixel size ("" when there is none).
+
+        Sources hand out a template with a ``%%`` size placeholder (Yandex:
+        ``avatars.yandex.net/.../%%``); a plain URL passes through.
+        """
+        if not self.cover_uri:
+            return ""
+        url = self.cover_uri.replace("%%", size)
+        return url if url.startswith("http") else f"https://{url}"
 
 
 @dataclass

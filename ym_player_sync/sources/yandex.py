@@ -55,6 +55,10 @@ FILE_CODECS = "flac,flac-mp4,mp3,aac,he-aac,aac-mp4,he-aac-mp4"
 DOWNLOAD_TIMEOUT = 60
 DOWNLOAD_ATTEMPTS = 3
 
+# Cover art pixel size requested for embedding (the URI template's "%%"
+# placeholder); 400x400 is enough for a player screen and a TUI.
+COVER_SIZE = "400x400"
+
 # server codec -> output file extension (container decides)
 CONTAINER_EXTENSIONS = {
     "flac": "flac",
@@ -118,6 +122,14 @@ def decrypt_data(data: bytes, key: str) -> bytes:
     """AES-CTR decrypt an encraw transport payload."""
     aes = AES.new(key=bytes.fromhex(key), nonce=bytes(12), mode=AES.MODE_CTR)
     return aes.decrypt(data)
+
+
+def _int_or_none(value: Any) -> int | None:
+    """API numbers arrive as ints, strings or missing — normalize."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 class YandexSource:
@@ -263,6 +275,36 @@ class YandexSource:
                 pass
         return info
 
+    @staticmethod
+    def _track(item: dict) -> Track:
+        """A Track plus the album metadata its tags are written from.
+
+        Everything a player displays (artist, title, album, year, track
+        number, cover) is in this response, and nothing else is: the
+        download itself only yields audio bytes.
+        """
+        artists = [
+            a.get("name", "") for a in item.get("artists") or [] if a.get("name")
+        ]
+        tid = item.get("id")
+        albums = item.get("albums") or []
+        album = albums[0] if albums else {}
+        position = album.get("trackPosition") or {}
+        return Track(
+            key=f"{tid}:{album.get('id', 0)}",
+            title=item.get("title", f"track-{tid}"),
+            artists=artists,
+            duration_ms=item.get("durationMs") or 0,
+            album=album.get("title", ""),
+            album_artists=[
+                a.get("name", "") for a in album.get("artists") or [] if a.get("name")
+            ],
+            year=_int_or_none(album.get("year")),
+            track_number=_int_or_none(position.get("index")),
+            disc_number=_int_or_none(position.get("volume")),
+            cover_uri=album.get("coverUri") or item.get("coverUri") or "",
+        )
+
     def fetch_tracks(self, keys: list[str]) -> list[Track]:
         tracks: list[Track] = []
         for i in range(0, len(keys), 100):
@@ -276,22 +318,7 @@ class YandexSource:
             for item in items:
                 if item.get("available") is False:
                     continue  # region-locked / removed
-                artists = [
-                    a.get("name", "")
-                    for a in item.get("artists") or []
-                    if a.get("name")
-                ]
-                tid = item.get("id")
-                albums = item.get("albums") or []
-                aid = albums[0].get("id") if albums else 0
-                tracks.append(
-                    Track(
-                        key=f"{tid}:{aid}",
-                        title=item.get("title", f"track-{tid}"),
-                        artists=artists,
-                        duration_ms=item.get("durationMs") or 0,
-                    )
-                )
+                tracks.append(self._track(item))
         return tracks
 
     def pick_variant(self, track: Track, quality: str) -> Variant:
@@ -370,6 +397,24 @@ class YandexSource:
             f.write(data)
         os.replace(tmp, dest)
         return len(data)
+
+    def fetch_cover(self, track: Track) -> bytes | None:
+        """Album cover bytes, or None when there is none / the fetch fails.
+
+        Covers come from the public avatar CDN (the same one the web player
+        uses), so this needs no signing. It is best-effort by design: a
+        missing cover must never fail a download, and the next run retries
+        it because the file still shows up as untagged.
+        """
+        url = track.cover_url(COVER_SIZE)
+        if not url:
+            return None
+        try:
+            resp = self.session.get(url, timeout=self.timeout)
+            resp.raise_for_status()
+        except requests.RequestException:
+            return None
+        return resp.content or None
 
     def _retrieve_with_fallback(self, track: Track, urls: list[str]) -> bytes:
         """Fetch from shuffled URLs, retrying stalled hosts with backoff."""

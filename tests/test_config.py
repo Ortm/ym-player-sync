@@ -166,6 +166,46 @@ def test_source_unknown_errors(tmp_path):
         load_config(_write(tmp_path, BASE + "source: spotify\n"))
 
 
+# -- tagging options -------------------------------------------------------
+
+
+def test_tags_default_to_on(tmp_path):
+    cfg = load_config(_write(tmp_path, BASE))
+    assert cfg.tags is True and cfg.embed_cover is True
+
+
+def test_tags_can_be_turned_off(tmp_path):
+    cfg = load_config(_write(tmp_path, BASE + "tags: false\nembed_cover: false\n"))
+    assert cfg.tags is False and cfg.embed_cover is False
+
+
+def test_tags_bad_value_errors(tmp_path):
+    with pytest.raises(ValueError, match="'tags'"):
+        load_config(_write(tmp_path, BASE + "tags: maybe\n"))
+    with pytest.raises(ValueError, match="'embed_cover'"):
+        load_config(_write(tmp_path, BASE + "embed_cover: 1\n"))
+
+
+def test_tagger_follows_the_config(tmp_path):
+    from ym_player_sync.cli import _tagger
+
+    class FakeSource:
+        def fetch_cover(self, track):
+            return b"jpeg"
+
+    source = FakeSource()
+    tagged = _tagger(load_config(_write(tmp_path, BASE)), source)
+    assert tagged is not None and tagged.cover_provider
+
+    plain = _tagger(
+        load_config(_write(tmp_path, BASE + "embed_cover: false\n")), source
+    )
+    assert plain is not None and plain.cover_provider is None
+
+    off = _tagger(load_config(_write(tmp_path, BASE + "tags: false\n")), source)
+    assert off is None
+
+
 # -- config discovery when --config is not given ---------------------------
 
 
