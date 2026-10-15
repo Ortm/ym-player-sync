@@ -214,6 +214,46 @@ def test_output_dir_expands_home(tmp_path, monkeypatch):
     assert cfg.output_dir == home / "Music" / "cache"
 
 
+def test_filename_template_default(tmp_path):
+    from ym_player_sync.config import DEFAULT_FILENAME_TEMPLATE
+
+    assert (
+        load_config(_write(tmp_path, BASE)).filename_template
+        == DEFAULT_FILENAME_TEMPLATE
+    )
+
+
+def test_filename_template_needs_position_and_ext(tmp_path):
+    with pytest.raises(ValueError, match="filename_template"):
+        load_config(_write(tmp_path, BASE + 'filename_template: "{title}.{ext}"\n'))
+    with pytest.raises(ValueError, match="filename_template"):
+        load_config(_write(tmp_path, BASE + 'filename_template: "{position}-{title}"\n'))
+
+
+def test_filename_template_must_render(tmp_path):
+    """A template that only breaks at render time is rejected up front."""
+    # a literal where `{width}` belongs
+    with pytest.raises(ValueError, match="does not render"):
+        load_config(
+            _write(
+                tmp_path,
+                BASE + 'filename_template: "{position:0{3}d}-{title} - {artists}.{ext}"\n',
+            )
+        )
+    # an unknown field
+    with pytest.raises(ValueError, match="does not render"):
+        load_config(
+            _write(tmp_path, BASE + 'filename_template: "{position}-{album}.{ext}"\n')
+        )
+
+
+def test_filename_template_accepts_a_literal_width(tmp_path):
+    cfg = load_config(
+        _write(tmp_path, BASE + 'filename_template: "{position:03d}-{title}.{ext}"\n')
+    )
+    assert cfg.filename_template == "{position:03d}-{title}.{ext}"
+
+
 # -- config discovery when --config is not given ---------------------------
 
 

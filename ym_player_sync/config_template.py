@@ -74,7 +74,9 @@ player_dir: "/run/media/<user>/<label>/Music"
 # Naming: {position} is the 1-based playlist position, zero-padded to
 # {width} digits; {title}, {artists}, {ext} (the downloaded codec) and
 # {name} ("Title - Artist") are also available. Must contain {position}
-# and {ext}.
+# and {ext}. A literal width works too ({position:03d}); the template is
+# rendered once when the config is loaded, so a broken one stops the run
+# before anything is downloaded.
 filename_template: "{position:0{width}d}-{title} - {artists}.{ext}"
 
 # Parallel downloads on the `download` stage (1 = sequential).

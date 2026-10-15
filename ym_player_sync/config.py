@@ -10,9 +10,16 @@ from typing import Any
 
 import yaml
 
+from .models import Track
+from .naming import render_filename
 from .sources import AVAILABLE_SOURCES
 
 VALID_QUALITIES = ("lossless", "high", "low")
+
+DEFAULT_FILENAME_TEMPLATE = "{position:0{width}d}-{title} - {artists}.{ext}"
+
+#: Stand-in track the filename template is rendered against at load time.
+_TEMPLATE_PROBE = Track(key="0:0", title="Title", artists=["Artist"], duration_ms=0)
 
 _ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 _ENV_FILE_LINE = re.compile(r"^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$")
@@ -59,6 +66,28 @@ def _bool_option(raw: dict[str, Any], key: str, default: bool) -> bool:
             f"config: '{key}' must be true or false, got {value!r}"
         )
     return value
+
+
+def _validate_template(template: str) -> str:
+    """Check the filename template actually renders, before it is needed.
+
+    The `{position}`/`{ext}` substring check is not enough: a literal where
+    `{width}` belongs (`{position:0{3}d}`) or an unknown field (`{album}`)
+    passes it and only blows up mid-download, once the queue is built.
+    """
+    for field in ("position", "ext"):
+        if f"{{{field}" not in template:
+            raise ValueError(f"config: 'filename_template' must contain {{{field}}}")
+    try:
+        render_filename(template, 7, 3, _TEMPLATE_PROBE, "flac")
+    except Exception as exc:
+        raise ValueError(
+            f"config: 'filename_template' does not render: {template!r} ({exc}); "
+            "fields are {position} {width} {name} {title} {artists} {ext} — "
+            "zero-pad with {position:0{width}d} (auto width) or a literal "
+            "width such as {position:03d}"
+        ) from None
+    return template
 
 
 @dataclass
@@ -153,12 +182,9 @@ def load_config(path: str | Path) -> Config:
     if not str(raw.get("player_dir") or ""):
         raise ValueError("config: 'player_dir' (mounted player path) is required")
 
-    template = raw.get("filename_template", "{position:0{width}d}-{title} - {artists}.{ext}")
-    for field in ("position", "ext"):
-        if f"{{{field}" not in template:
-            raise ValueError(
-                f"config: 'filename_template' must contain {{{field}}}"
-            )
+    template = _validate_template(
+        str(raw.get("filename_template", DEFAULT_FILENAME_TEMPLATE))
+    )
 
     source = raw.get("source")
     if source is not None:
