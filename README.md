@@ -32,12 +32,13 @@ Mirror a Yandex Music playlist onto a USB music player: `001-Title - Artist.flac
 
 ```bash
 uv sync
-cp config.example.yaml config.yaml   # then fill in playlist_url, token, player_dir
-export YM_TOKEN=...                   # or put the token in config.yaml
+uv run ym-player-sync init   # writes ./config/config.yaml, with comments
+$EDITOR config/config.yaml   # playlist_url, token and player_dir
 ```
 
-Keep `config.yaml` private (`chmod 600 config.yaml`, git-ignored) — it carries
-your token.
+`init` never overwrites an existing config, so it is safe to re-run. Keep the
+config private (`chmod 600 config/config.yaml`, git-ignored) — it carries your
+token (or a `token_file:` line pointing at one).
 
 ### Getting a token
 
@@ -50,6 +51,7 @@ documents; any token that can read your library works. Check it with
 ## Usage
 
 ```bash
+uv run ym-player-sync init               # write a commented starter config
 uv run ym-player-sync info               # check token + playlist summary
 uv run ym-player-sync download --dry-run # preview stage 1, change nothing
 uv run ym-player-sync download           # stage 1: fetch playlist into the cache
@@ -86,11 +88,13 @@ programs.ym-player-sync = {
 
 This writes `~/.config/ym-player-sync/config.yaml`, installs the package,
 and keeps the token out of the Nix store (it is read from `tokenFile` when
-a command runs). With `schedule` set it also installs a
-`ym-player-sync` user service + timer that runs the `download` and
-`sync` stages in order; the unit is skipped while `playerDir` is absent,
-so an unplugged player never fails the timer. Every option is typed, and
-anything the module does not model can be passed through `settings`.
+a command runs). With sops-nix or agenix the config only carries the path:
+`tokenFile = config.sops.secrets."ym-token".path;`. With `schedule` set the
+module also installs a `ym-player-sync` user service + timer that runs the
+`download` and `sync` stages in order; the unit is skipped while
+`playerDir` is absent, so an unplugged player never fails the timer. Every
+option is typed, and anything the module does not model can be passed
+through `settings`.
 
 ## Config (`config.yaml`)
 
@@ -110,9 +114,11 @@ anything the module does not model can be passed through `settings`.
 | `player_dir` | Mounted player path — must exist (fails loudly if the player isn't plugged in) |
 | `filename_template` | Naming, default `{position:0{width}d}-{title} - {artists}.{ext}` → `001-Title - Artist.flac` |
 
-The config is looked up as `--config` → `./config.yaml` → `~/.config/ym-player-sync/config.yaml`
+The config is looked up as `--config` → `./config/config.yaml` →
+`./config.yaml` (older checkouts) → `~/.config/ym-player-sync/config.yaml`
 (the last one is where the Home Manager module installs it, so an installed
-copy needs no flags).
+copy needs no flags). `ym-player-sync init` writes a commented starter config
+to the first of those.
 
 ## How it works
 
@@ -150,8 +156,9 @@ copy needs no flags).
 
 ```
 ym_player_sync/
-  cli.py            # argument parsing, `download` / `sync` / `info` commands
-  config.py         # YAML loading + validation
+  cli.py            # argument parsing, `init` / `download` / `sync` / `info`
+  config.py         # YAML loading + validation, config lookup
+  config_template.py# the commented starter config `init` writes
   models.py         # Track, Variant, PlaylistInfo, DesiredTrack
   naming.py         # player-safe filenames + numbering template
   limits.py         # max_tracks / max_total_mb truncation
@@ -185,9 +192,9 @@ nix/
 
 ## Notes
 
-- Tests: `uv run pytest` (125 tests, network-free). `nix flake check` builds the
-  package, runs the same suite in the sandbox and smoke-tests the CLI; CI runs both
-  on every push.
+- Tests: `uv run pytest` (145 tests, network-free). `nix flake check` builds the
+  package, runs the same suite in the sandbox and smoke-tests the CLI (including
+  `init` writing a config); CI runs both on every push.
 - License: MIT (see `LICENSE`).
 
 ## Scope and legal

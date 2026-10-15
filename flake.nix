@@ -53,6 +53,15 @@
                 export HOME=$PWD
                 ym-player-sync --version | grep -qF "ym-player-sync $version"
                 ym-player-sync --help | grep -qF "sync"
+                ym-player-sync --help | grep -qF "init"
+                ym-player-sync init | grep -qF "config/config.yaml"
+                test -f config/config.yaml
+                grep -qF "playlist_url" config/config.yaml
+                # a second run must refuse instead of clobbering the config
+                if ym-player-sync init; then
+                  echo "init overwrote an existing config" >&2
+                  exit 1
+                fi
                 touch $out
               '';
         }

@@ -1,13 +1,23 @@
-# Copy to config.yaml and fill in. ${ENV_VAR} in any string value is
-# expanded from the environment.
-playlist_url: "https://music.yandex.ru/users/your-login/playlists/1234"
+# ym-player-sync configuration.
+#
+# `ym-player-sync init` writes this file with the defaults; fill in the
+# playlist, the token and the player path, then run `ym-player-sync info`.
+#
+# Where it is looked for: --config <path>, then ./config/config.yaml,
+# then ./config.yaml (older checkouts), then
+# ~/.config/ym-player-sync/config.yaml (where the Home Manager module
+# puts it). ${VAR} in any value is expanded from the environment (an
+# unset variable expands to nothing).
 
-# Yandex Music OAuth token. Either keep it out of this file
-#   token: "${YM_TOKEN}"    # expanded from the environment
-# or point at a file that holds it (agenix/sops-nix friendly):
-#   token_file: "/run/secrets/ym-token"
-token: "${YM_TOKEN}"
-# token_file: null
+# Playlist to mirror. Also accepts the Liked-tracks collection
+# (…/users/<login>/tracks) and share links (…/playlists/<uid>.<uuid>).
+playlist_url: "https://music.yandex.ru/users/<login>/playlists/<kind>"
+
+# Yandex Music token: uncomment one. A file holding the bare token or a
+# YM_TOKEN=... line (what agenix/sops-nix write) keeps the secret out of
+# this config; the YM_TOKEN environment variable also works.
+# token_file: "~/.config/sops-nix/secrets/ym-token"
+# token: "y0_..."
 
 # Download tier. Files are kept exactly as downloaded (no transcoding):
 #   lossless - FLAC, biggest, no quality loss (needs Yandex Plus/Premium)
@@ -16,30 +26,30 @@ token: "${YM_TOKEN}"
 quality: lossless
 
 # Music source. Null (or omitted) auto-detects from the playlist URL.
-# Only "yandex" exists for now - see README for adding new sources.
 source: null
 
-# Write the track's metadata (artist, title, album, album artist, year,
-# track number) into each downloaded file, so players show what is
-# playing instead of a filename, and embed the album cover image into it.
-# Existing tags on a file are kept; a re-run is a no-op.
+# Tag the downloaded files (artist/title/album/…) and embed the cover,
+# so players show what is playing instead of a file name.
 tags: true
 embed_cover: true
 
-# Limits (null = no limit). At least one of them answers "fit on my player".
+# Limits (null = no limit). max_tracks trims the playlist; max_total_mb
+# budgets the cache: estimates first, then a hard stop on real bytes.
 max_tracks: null
-max_total_mb: null
+max_total_mb: 6000
 
-# Parallel downloads on the `download` stage (threads; 1 = sequential).
-# 4 is a sane default: each download is network-bound, transcoding runs
-# in a subprocess, and Yandex tolerates a few parallel streams.
-workers: 4
+# Local staging dir (cache + sync state live here). Relative paths are
+# resolved against this file's directory, so "../music" keeps the cache
+# inside a checkout; an absolute path (or ~/…) works anywhere.
+output_dir: "../music"
 
-# Local staging dir (cache + state live here) and the mounted player.
-output_dir: "./music"
-player_dir: "/run/media/user/PLAYER/Music"
+# Mounted player; the sync stage mirrors the cache into its Music/ dir.
+player_dir: "/run/media/<user>/<label>/Music"
 
-# {position} is the 1-based playlist position, zero-padded to {width} digits.
-# {title} is the track name, {artists} the artist(s), {ext} follows the
-# downloaded codec. {name} ("Title - Artist") is also available.
+# {position} is the 1-based playlist position, zero-padded to {width}
+# digits. {title} is the track name, {artists} the artist(s), {ext} the
+# downloaded codec; {name} ("Title - Artist") is also available.
 filename_template: "{position:0{width}d}-{title} - {artists}.{ext}"
+
+# Parallel downloads on the download stage.
+workers: 4

@@ -206,6 +206,14 @@ def test_tagger_follows_the_config(tmp_path):
     assert off is None
 
 
+def test_output_dir_expands_home(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    cfg = load_config(_write(tmp_path, BASE + 'output_dir: "~/Music/cache"\n'))
+    assert cfg.output_dir == home / "Music" / "cache"
+
+
 # -- config discovery when --config is not given ---------------------------
 
 
@@ -214,6 +222,19 @@ def test_default_config_prefers_cwd(tmp_path, monkeypatch):
     (tmp_path / "config.yaml").write_text(BASE, encoding="utf-8")
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     assert default_config_path() == Path("config.yaml")
+
+
+def test_default_config_prefers_the_project_config_dir(tmp_path, monkeypatch):
+    """config/config.yaml (what `init` writes) beats the older layouts."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "config.yaml").write_text(BASE, encoding="utf-8")
+    (tmp_path / "config.yaml").write_text(BASE, encoding="utf-8")
+    xdg = tmp_path / "xdg" / "ym-player-sync"
+    xdg.mkdir(parents=True)
+    (xdg / "config.yaml").write_text(BASE, encoding="utf-8")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    assert default_config_path() == Path("config") / "config.yaml"
 
 
 def test_default_config_falls_back_to_xdg(tmp_path, monkeypatch):
@@ -237,11 +258,12 @@ def test_default_config_without_xdg_env(tmp_path, monkeypatch):
     assert default_config_path() == home / ".config" / "ym-player-sync" / "config.yaml"
 
 
-def test_default_config_falls_back_to_cwd_path(tmp_path, monkeypatch):
+def test_default_config_falls_back_to_project_path(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "empty"))
-    assert default_config_path() == Path("config.yaml")
-    with pytest.raises(FileNotFoundError):
+    # nothing exists yet: name the path `init` would write
+    assert default_config_path() == Path("config") / "config.yaml"
+    with pytest.raises(FileNotFoundError, match="ym-player-sync init"):
         load_config(default_config_path())
 
 

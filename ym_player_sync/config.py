@@ -83,15 +83,21 @@ def xdg_config_dir() -> Path:
     return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
 
 
+#: Where a project/checkout keeps its config — what `init` writes.
+PROJECT_CONFIG_PATH = Path("config") / "config.yaml"
+
+
 def default_config_path() -> Path:
     """Config path used when `--config` is not given.
 
-    ``./config.yaml`` wins, so running from a checkout keeps working; the
-    XDG location is what the Nix/Home Manager module installs, so an
-    installed copy finds its own config. With neither present the first
-    candidate is returned, so the error names the familiar path.
+    ``config/config.yaml`` wins (a checkout keeps its own config there),
+    then the older bare ``./config.yaml``, then the XDG location the
+    Nix/Home Manager module installs, so an installed copy still finds
+    its own config. With none of them present the first candidate is
+    returned, so the error names the path `ym-player-sync init` writes.
     """
     candidates = [
+        PROJECT_CONFIG_PATH,
         Path("config.yaml"),
         xdg_config_dir() / "ym-player-sync" / "config.yaml",
     ]
@@ -105,7 +111,8 @@ def load_config(path: str | Path) -> Config:
     path = Path(path)
     if not path.is_file():
         raise FileNotFoundError(
-            f"config file not found: {path} (copy config.example.yaml to get started)"
+            f"config file not found: {path} "
+            "(run 'ym-player-sync init' to write a commented one)"
         )
     with path.open(encoding="utf-8") as f:
         loaded = yaml.safe_load(f) or {}
@@ -153,7 +160,7 @@ def load_config(path: str | Path) -> Config:
         if max_total_mb <= 0:
             raise ValueError("config: 'max_total_mb' must be > 0")
 
-    output_dir = Path(raw.get("output_dir", "./music"))
+    output_dir = Path(raw.get("output_dir", "./music")).expanduser()
     if not output_dir.is_absolute():
         output_dir = (base / output_dir).resolve()
     player_dir = Path(raw.get("player_dir") or "")

@@ -8,7 +8,8 @@ from pathlib import Path
 
 from . import __version__
 from .audio import output_extension
-from .config import default_config_path, load_config
+from .config import PROJECT_CONFIG_PATH, default_config_path, load_config
+from .config_template import TEMPLATE
 from .limits import apply_limits
 from .models import DesiredTrack
 from .naming import queue_width, render_filename
@@ -35,6 +36,23 @@ def _tagger(config, source) -> Tagger | None:
     return Tagger(
         cover_provider=source.fetch_cover if config.embed_cover else None
     )
+
+
+def cmd_init(target: Path) -> int:
+    """Write the commented starter config — never over an existing file."""
+    if target.exists():
+        print(f"Error: {target} already exists, leaving it alone.")
+        print("       Delete it first if you want a fresh starter config.")
+        return 1
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(TEMPLATE, encoding="utf-8")
+    except OSError as e:
+        print(f"Error: cannot write {target}: {e}")
+        return 1
+    print(f"Wrote {target} — fill in the playlist, the token and the player,")
+    print("then check it with: ym-player-sync info")
+    return 0
 
 
 def cmd_info(config) -> int:
@@ -253,8 +271,8 @@ def main(argv: list[str] | None = None) -> int:
         "--config",
         default=None,
         help=(
-            "config file (default: ./config.yaml, falling back to "
-            "~/.config/ym-player-sync/config.yaml)"
+            "config file (default: ./config/config.yaml, then ./config.yaml, "
+            "then ~/.config/ym-player-sync/config.yaml)"
         ),
     )
     sub = parser.add_subparsers(dest="command", required=True)
@@ -268,8 +286,20 @@ def main(argv: list[str] | None = None) -> int:
         "--dry-run", action="store_true", help="show what would happen, change nothing"
     )
     sub.add_parser("info", help="check token, show playlist summary")
+    p_init = sub.add_parser(
+        "init", help="write a commented starter config (never overwrites)"
+    )
+    p_init.add_argument(
+        "path",
+        nargs="?",
+        default=None,
+        help="where to write it (default: ./config/config.yaml)",
+    )
 
     args = parser.parse_args(argv)
+
+    if args.command == "init":
+        return cmd_init(Path(args.path) if args.path else PROJECT_CONFIG_PATH)
 
     try:
         config = load_config(args.config or default_config_path())
