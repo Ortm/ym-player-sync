@@ -20,6 +20,17 @@ Mirror a Yandex Music playlist onto a USB music player: `001-Title - Artist.flac
 - New music sources are one file plus a registry line — see
   [Adding a new source](#adding-a-new-source).
 
+There are two ways to configure it, and both end in the same file,
+`~/.config/ym-player-sync/config.yaml`:
+
+- **with Nix**: the Home Manager module turns typed settings into that file
+  (and can install a systemd timer) — [Setup (Nix / Home Manager)](#setup-nix--home-manager);
+- **without Nix**: `ym-player-sync init` writes a commented starter config
+  there and you edit it — [Setup (uv)](#setup-uv).
+
+That file is the only place the tool reads its config from (`--config <path>`
+aside), so the two paths are identical on disk.
+
 ## Requirements
 
 - Python 3.11+ (or Nix), a Yandex Music account, and an OAuth token for it.
@@ -79,23 +90,41 @@ imports = [ inputs.ym-player-sync.homeManagerModules.default ];
 
 programs.ym-player-sync = {
   enable = true;
-  playlistUrl = "https://music.yandex.ru/users/<login>/playlists/<kind>";
-  playerDir = "/run/media/<user>/PLAYER/Music";
-  quality = "lossless";
-  tokenFile = "/run/secrets/ym-token";  # any file holding the token
-  schedule = "daily";                   # optional systemd user timer
+  playlistUrl = "https://music.yandex.ru/users/<login>/tracks"; # or …/playlists/<kind>, or a share link
+  playerDir = "/mnt/player/favourite";          # mount point; must exist when a sync runs
+  quality = "lossless";                         # lossless | high (320 MP3) | low
+  tokenFile = "/run/secrets/ym-token";          # any file holding the token
+  # token = "${YM_TOKEN}";                      # default: read from the env at run time
+
+  tags = true;                                  # write metadata into the files
+  embedCover = true;                            # … plus the album cover
+  maxTracks = null;                             # only the first N tracks (null = all)
+  maxTotalMb = 6000;                            # size cap in MB (null = none)
+  outputDir = "/home/<user>/Music/ym-player-sync"; # local cache (default: ~/Music/ym-player-sync)
+  filenameTemplate = "{position:0{width}d}-{title} - {artists}.{ext}";
+  workers = 8;                                  # parallel downloads
+
+  schedule = "daily";                           # optional systemd user timer
+  # settings = { };                             # any extra config.yaml key, merged last
 };
 ```
 
-This writes `~/.config/ym-player-sync/config.yaml`, installs the package,
-and keeps the token out of the Nix store (it is read from `tokenFile` when
-a command runs). With sops-nix or agenix the config only carries the path:
+This writes `~/.config/ym-player-sync/config.yaml` — the same file `init`
+would write, so a machine can switch between the two paths without moving
+anything. While the module is enabled **it owns that file**: Home Manager
+links it to the Nix store, so edit the values here, not the file (a hand edit
+is overwritten by the next switch; `init` refuses to touch an existing file).
+Options left `null` are omitted from the generated YAML, so the tool's own
+defaults apply.
+
+The token stays out of the Nix store: `tokenFile` is read when a command
+runs, and with sops-nix or agenix the config only carries the path —
 `tokenFile = config.sops.secrets."ym-token".path;`. With `schedule` set the
 module also installs a `ym-player-sync` user service + timer that runs the
-`download` and `sync` stages in order; the unit is skipped while
-`playerDir` is absent, so an unplugged player never fails the timer. Every
-option is typed, and anything the module does not model can be passed
-through `settings`.
+`download` and `sync` stages in order; the unit is skipped while `playerDir`
+is absent, so an unplugged player never fails the timer. Every option is
+typed, and anything the module does not model can be passed through
+`settings`.
 
 ## Config (`config.yaml`)
 
@@ -113,7 +142,7 @@ through `settings`.
 | `max_total_mb` | Cap on estimated total download size; keeps every track that fits, always at least the first (`null` = no cap); tracks over budget are deleted from cache and player |
 | `output_dir` | Local cache dir (downloads + sync state) |
 | `player_dir` | Mounted player path — must exist (fails loudly if the player isn't plugged in) |
-| `filename_template` | Naming, default `{position:0{width}d}-{title} - {artists}.{ext}` → `001-Title - Artist.flac` |
+| `filename_template` | Naming, default `{position:0{width}d}-{title} - {artists}.{ext}` → `001-Title - Artist.flac`; a literal width (`{position:03d}`) works too. Rendered once when the config loads, so a typo fails before anything is downloaded |
 
 The config is read from `~/.config/ym-player-sync/config.yaml` — the one
 location, where the Nix/Home Manager module installs it too — unless a command
@@ -192,9 +221,10 @@ nix/
 
 ## Notes
 
-- Tests: `uv run pytest` (146 tests, network-free). `nix flake check` builds the
-  package, runs the same suite in the sandbox and smoke-tests the CLI (including
-  `init` writing a config); CI runs both on every push.
+- Tests: `uv run pytest` (150 tests, network-free). `nix flake check` builds the
+  package, runs the same suite in the sandbox, smoke-tests the CLI (including
+  `init` writing a config), and evaluates the Home Manager module with sample
+  settings, asserting the `config.yaml` it generates; CI runs both on every push.
 - License: MIT (see `LICENSE`).
 
 ## Scope and legal
