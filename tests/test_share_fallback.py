@@ -98,3 +98,31 @@ def test_shared_playlist_refetches_owner_context_when_trackless():
     playlist = src.fetch_playlist(URL)
     assert playlist.track_keys == ["1:2"]
     assert seen == ["/playlist/lk.abc123", "/users/u/playlists/3"]
+
+
+NESTED_ENTRIES = {
+    "title": "Liked",
+    "owner": {"login": "someone"},
+    "kind": 3,
+    "tracks": [
+        {
+            "id": 154759437,
+            "timestamp": "2024-01-01T00:00:00+00:00",
+            "track": {"id": 154759437, "albums": [{"id": 43531608}]},
+        },
+        {"id": 2, "track": {"id": 2, "albumId": 9}},
+    ],
+}
+
+
+def test_share_playlist_reads_nested_track_entries():
+    """Playlist/share responses wrap the track; album id lives in albums[0]."""
+    src, calls = _source_with({"/playlist/lk.abc123": NESTED_ENTRIES})
+    playlist = src.fetch_playlist(URL)
+    assert playlist.track_keys == ["154759437:43531608", "2:9"]
+    assert calls == ["/playlist/lk.abc123"]
+
+
+def test_track_keys_skip_entries_without_album():
+    entries = [{"id": 5, "track": {}}, {"id": 6}]
+    assert YandexSource._track_keys(entries) == []

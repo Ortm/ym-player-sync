@@ -214,9 +214,26 @@ class YandexSource:
 
     @staticmethod
     def _track_keys(entries: list) -> list[str]:
+        """Keys out of playlist entries in either API shape.
+
+        The likes collection returns flat ``{id, albumId}`` entries, while
+        playlists and share links wrap the track: ``{id, timestamp, track:
+        {...}}`` with the album id only under the nested track's
+        ``albums[0].id``.
+        """
         keys = []
         for entry in entries:
-            track_id, album_id = entry.get("id"), entry.get("albumId")
+            if not isinstance(entry, dict):
+                continue
+            item = entry.get("track")
+            if not isinstance(item, dict):
+                item = entry
+            track_id = item.get("id")
+            album_id = item.get("albumId")
+            if album_id is None:
+                albums = item.get("albums") or []
+                if albums and isinstance(albums[0], dict):
+                    album_id = albums[0].get("id")
             if track_id is not None and album_id is not None:
                 keys.append(f"{track_id}:{album_id}")
         return keys
