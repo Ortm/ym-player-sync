@@ -217,35 +217,27 @@ def test_output_dir_expands_home(tmp_path, monkeypatch):
 # -- config discovery when --config is not given ---------------------------
 
 
-def test_default_config_prefers_cwd(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yaml").write_text(BASE, encoding="utf-8")
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
-    assert default_config_path() == Path("config.yaml")
-
-
-def test_default_config_prefers_the_project_config_dir(tmp_path, monkeypatch):
-    """config/config.yaml (what `init` writes) beats the older layouts."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config").mkdir()
-    (tmp_path / "config" / "config.yaml").write_text(BASE, encoding="utf-8")
-    (tmp_path / "config.yaml").write_text(BASE, encoding="utf-8")
-    xdg = tmp_path / "xdg" / "ym-player-sync"
-    xdg.mkdir(parents=True)
-    (xdg / "config.yaml").write_text(BASE, encoding="utf-8")
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
-    assert default_config_path() == Path("config") / "config.yaml"
-
-
-def test_default_config_falls_back_to_xdg(tmp_path, monkeypatch):
+def test_default_config_is_the_xdg_path(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     xdg = tmp_path / "xdg"
     (xdg / "ym-player-sync").mkdir(parents=True)
     (xdg / "ym-player-sync" / "config.yaml").write_text(BASE, encoding="utf-8")
     monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
     assert default_config_path() == xdg / "ym-player-sync" / "config.yaml"
-    # the fallback is loadable as-is (this is where the Nix module puts it)
+    # it is loadable as-is (this is where the Nix module puts it)
     assert load_config(default_config_path()).quality == "high"
+
+
+def test_default_config_ignores_a_checkout_config(tmp_path, monkeypatch):
+    """One location only: ./config.yaml* in the cwd is not picked up."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yaml").write_text(BASE, encoding="utf-8")
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "config.yaml").write_text(BASE, encoding="utf-8")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    assert default_config_path() == (
+        tmp_path / "xdg" / "ym-player-sync" / "config.yaml"
+    )
 
 
 def test_default_config_without_xdg_env(tmp_path, monkeypatch):
@@ -258,11 +250,13 @@ def test_default_config_without_xdg_env(tmp_path, monkeypatch):
     assert default_config_path() == home / ".config" / "ym-player-sync" / "config.yaml"
 
 
-def test_default_config_falls_back_to_project_path(tmp_path, monkeypatch):
+def test_default_config_with_nothing_installed_points_at_init(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "empty"))
     # nothing exists yet: name the path `init` would write
-    assert default_config_path() == Path("config") / "config.yaml"
+    assert default_config_path() == (
+        tmp_path / "empty" / "ym-player-sync" / "config.yaml"
+    )
     with pytest.raises(FileNotFoundError, match="ym-player-sync init"):
         load_config(default_config_path())
 

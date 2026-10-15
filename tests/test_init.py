@@ -1,40 +1,60 @@
-"""`ym-player-sync init` and the config example it shares its text with."""
+"""`ym-player-sync init` and the config template it writes."""
 
-from pathlib import Path
-
+import pytest
 import yaml
 
 from ym_player_sync.cli import main
 from ym_player_sync.config_template import TEMPLATE
 
-REPO = Path(__file__).resolve().parent.parent
+# Every key the config loader understands: `init` must document all of them.
+CONFIG_KEYS = {
+    "playlist_url",
+    "source",
+    "token",
+    "token_file",
+    "quality",
+    "tags",
+    "embed_cover",
+    "max_tracks",
+    "max_total_mb",
+    "output_dir",
+    "player_dir",
+    "filename_template",
+    "workers",
+}
 
 
-def test_init_writes_a_commented_config(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
+def test_template_documents_every_parameter():
+    raw = yaml.safe_load(TEMPLATE)
+    assert set(raw) == CONFIG_KEYS
+
+
+def test_template_comments_every_parameter():
+    """Each parameter sits under a comment block of its own."""
+    for key in CONFIG_KEYS:
+        block = TEMPLATE.split(f"\n{key}:")[0].rsplit("\n\n", 1)[-1]
+        assert block.lstrip().startswith("#"), f"{key} has no comment"
+
+
+def test_init_writes_to_the_xdg_config_path(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     assert main(["init"]) == 0
 
-    written = tmp_path / "config" / "config.yaml"
-    assert written.is_file()
-    raw = yaml.safe_load(written.read_text(encoding="utf-8"))
-    assert raw["quality"] == "lossless"
-    assert raw["tags"] is True and raw["embed_cover"] is True
-    assert "playlist_url" in raw and "player_dir" in raw
-    # the token lines stay commented out — they are what the user fills in
-    assert "token" not in raw and "token_file" not in raw
+    written = tmp_path / "xdg" / "ym-player-sync" / "config.yaml"
+    assert written.read_text(encoding="utf-8") == TEMPLATE
 
 
 def test_init_prints_the_written_path_and_next_step(tmp_path, monkeypatch, capsys):
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     assert main(["init"]) == 0
     out = capsys.readouterr().out
-    assert "config/config.yaml" in out
+    assert str(tmp_path / "xdg" / "ym-player-sync" / "config.yaml") in out
     assert "ym-player-sync info" in out
 
 
 def test_init_refuses_to_overwrite(tmp_path, monkeypatch, capsys):
-    monkeypatch.chdir(tmp_path)
-    target = tmp_path / "config" / "config.yaml"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    target = tmp_path / "xdg" / "ym-player-sync" / "config.yaml"
     target.parent.mkdir(parents=True)
     target.write_text("keep me\n", encoding="utf-8")
 
@@ -56,7 +76,11 @@ def test_init_reports_a_path_it_cannot_write(tmp_path, capsys):
     assert "cannot write" in capsys.readouterr().out
 
 
-def test_example_config_matches_the_template():
-    """The repo's config.example.yaml is exactly what `init` writes."""
-    example = REPO / "config.example.yaml"
-    assert example.read_text(encoding="utf-8") == TEMPLATE
+def test_fresh_config_is_valid_and_asks_for_a_token(tmp_path, monkeypatch, capsys):
+    """The template parses and validates; the token is all that is missing."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.delenv("YM_TOKEN", raising=False)
+    assert main(["init"]) == 0
+
+    assert main(["info"]) == 2  # nothing left to do but fill the token in
+    assert "no token" in capsys.readouterr().out

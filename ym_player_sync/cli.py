@@ -8,7 +8,7 @@ from pathlib import Path
 
 from . import __version__
 from .audio import output_extension
-from .config import PROJECT_CONFIG_PATH, default_config_path, load_config
+from .config import default_config_path, load_config
 from .config_template import TEMPLATE
 from .limits import apply_limits
 from .models import DesiredTrack
@@ -271,8 +271,8 @@ def main(argv: list[str] | None = None) -> int:
         "--config",
         default=None,
         help=(
-            "config file (default: ./config/config.yaml, then ./config.yaml, "
-            "then ~/.config/ym-player-sync/config.yaml)"
+            "config file (default: ~/.config/ym-player-sync/config.yaml, "
+            "written by `ym-player-sync init`)"
         ),
     )
     sub = parser.add_subparsers(dest="command", required=True)
@@ -293,13 +293,13 @@ def main(argv: list[str] | None = None) -> int:
         "path",
         nargs="?",
         default=None,
-        help="where to write it (default: ./config/config.yaml)",
+        help="where to write it (default: ~/.config/ym-player-sync/config.yaml)",
     )
 
     args = parser.parse_args(argv)
 
     if args.command == "init":
-        return cmd_init(Path(args.path) if args.path else PROJECT_CONFIG_PATH)
+        return cmd_init(Path(args.path) if args.path else default_config_path())
 
     try:
         config = load_config(args.config or default_config_path())

@@ -16,8 +16,6 @@ python3Packages.buildPythonApplication {
       ../tests
       ../pyproject.toml
       ../README.md
-      # a test asserts it matches config_template.py byte for byte
-      ../config.example.yaml
     ];
   };
 

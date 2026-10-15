@@ -7,8 +7,8 @@ build/
 dist/
 *.egg-info/
 # ---> ym-player-sync
-# Your real config carries a secret token - never commit it. The bare
-# pattern covers both ./config.yaml and ./config/config.yaml.
+# Your real config carries a secret token - never commit it. It lives
+# outside the repo (ym-player-sync init writes it to ~/.config).
 config.yaml
 music/
 *.part

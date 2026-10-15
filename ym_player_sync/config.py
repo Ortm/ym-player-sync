@@ -83,28 +83,14 @@ def xdg_config_dir() -> Path:
     return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
 
 
-#: Where a project/checkout keeps its config — what `init` writes.
-PROJECT_CONFIG_PATH = Path("config") / "config.yaml"
-
-
 def default_config_path() -> Path:
     """Config path used when `--config` is not given.
 
-    ``config/config.yaml`` wins (a checkout keeps its own config there),
-    then the older bare ``./config.yaml``, then the XDG location the
-    Nix/Home Manager module installs, so an installed copy still finds
-    its own config. With none of them present the first candidate is
-    returned, so the error names the path `ym-player-sync init` writes.
+    The XDG location is the only place a config is read from: it is what
+    `ym-player-sync init` writes and what the Nix/Home Manager module
+    installs, so a checkout and an installed copy use the same file.
     """
-    candidates = [
-        PROJECT_CONFIG_PATH,
-        Path("config.yaml"),
-        xdg_config_dir() / "ym-player-sync" / "config.yaml",
-    ]
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate
-    return candidates[0]
+    return xdg_config_dir() / "ym-player-sync" / "config.yaml"
 
 
 def load_config(path: str | Path) -> Config:

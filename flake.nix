@@ -54,9 +54,9 @@
                 ym-player-sync --version | grep -qF "ym-player-sync $version"
                 ym-player-sync --help | grep -qF "sync"
                 ym-player-sync --help | grep -qF "init"
-                ym-player-sync init | grep -qF "config/config.yaml"
-                test -f config/config.yaml
-                grep -qF "playlist_url" config/config.yaml
+                ym-player-sync init | grep -qF "ym-player-sync/config.yaml"
+                test -f "$HOME/.config/ym-player-sync/config.yaml"
+                grep -qF "playlist_url" "$HOME/.config/ym-player-sync/config.yaml"
                 # a second run must refuse instead of clobbering the config
                 if ym-player-sync init; then
                   echo "init overwrote an existing config" >&2

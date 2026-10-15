@@ -32,13 +32,14 @@ Mirror a Yandex Music playlist onto a USB music player: `001-Title - Artist.flac
 
 ```bash
 uv sync
-uv run ym-player-sync init   # writes ./config/config.yaml, with comments
-$EDITOR config/config.yaml   # playlist_url, token and player_dir
+uv run ym-player-sync init   # writes ~/.config/ym-player-sync/config.yaml
+$EDITOR ~/.config/ym-player-sync/config.yaml   # playlist, token, player_dir
 ```
 
-`init` never overwrites an existing config, so it is safe to re-run. Keep the
-config private (`chmod 600 config/config.yaml`, git-ignored) — it carries your
-token (or a `token_file:` line pointing at one).
+The file `init` writes lists every parameter with a comment; it never
+overwrites an existing one, so it is safe to re-run. Keep it private
+(`chmod 600`) — it carries your token (or a `token_file:` line pointing at
+one).
 
 ### Getting a token
 
@@ -114,11 +115,10 @@ through `settings`.
 | `player_dir` | Mounted player path — must exist (fails loudly if the player isn't plugged in) |
 | `filename_template` | Naming, default `{position:0{width}d}-{title} - {artists}.{ext}` → `001-Title - Artist.flac` |
 
-The config is looked up as `--config` → `./config/config.yaml` →
-`./config.yaml` (older checkouts) → `~/.config/ym-player-sync/config.yaml`
-(the last one is where the Home Manager module installs it, so an installed
-copy needs no flags). `ym-player-sync init` writes a commented starter config
-to the first of those.
+The config is read from `~/.config/ym-player-sync/config.yaml` — the one
+location, where the Nix/Home Manager module installs it too — unless a command
+is given `--config <path>`. `ym-player-sync init` writes a commented starter
+config there with every parameter in it.
 
 ## How it works
 
@@ -192,7 +192,7 @@ nix/
 
 ## Notes
 
-- Tests: `uv run pytest` (145 tests, network-free). `nix flake check` builds the
+- Tests: `uv run pytest` (146 tests, network-free). `nix flake check` builds the
   package, runs the same suite in the sandbox and smoke-tests the CLI (including
   `init` writing a config); CI runs both on every push.
 - License: MIT (see `LICENSE`).
